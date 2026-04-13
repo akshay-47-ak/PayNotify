@@ -3,12 +3,15 @@ package com.acme.PayNotify.controller;
 import com.acme.PayNotify.dto.ApiResponse;
 import com.acme.PayNotify.dto.GenerateQrRequest;
 import com.acme.PayNotify.dto.GenerateQrResponse;
+import com.acme.PayNotify.dto.PaymentNotificationRequest;
 import com.acme.PayNotify.entity.PaymentTransaction;
 import com.acme.PayNotify.service.PaymentService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/payment")
@@ -41,6 +44,17 @@ public class PaymentController {
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(new ApiResponse<PaymentTransaction>(false, e.getMessage(), null));
+        }
+    }
+
+    @PostMapping("/notify")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> notifyPayment(@RequestBody PaymentNotificationRequest request) {
+        try {
+            Map<String, Object> result = paymentService.processNotification(request);
+            return ResponseEntity.ok(new ApiResponse<Map<String, Object>>(true, "Notification processed", result));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ApiResponse<Map<String, Object>>(false, e.getMessage(), null));
         }
     }
 }
