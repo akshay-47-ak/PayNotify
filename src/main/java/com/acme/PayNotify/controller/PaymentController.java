@@ -57,4 +57,9 @@ public class PaymentController {
                     .body(new ApiResponse<Map<String, Object>>(false, e.getMessage(), null));
         }
     }
+
+    @GetMapping("/test")
+    public String test() {
+        return "OK";
+    }
 }

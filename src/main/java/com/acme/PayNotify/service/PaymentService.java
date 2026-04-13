@@ -85,7 +85,14 @@ public class PaymentService {
             return response;
         }
 
-        Map<String, String> parsed = notificationParserService.parse(request.getMessage());
+        String fullText = ((request.getTitle() != null ? request.getTitle() : "") + " "
+                + (request.getMessage() != null ? request.getMessage() : "")).trim();
+
+        System.out.println("Notify title: " + request.getTitle());
+        System.out.println("Notify message: " + request.getMessage());
+        System.out.println("Notify fullText: " + fullText);
+
+        Map<String, String> parsed = notificationParserService.parse(fullText);
 
         String amountStr = parsed.get("amount");
         String utr = parsed.get("utr");
@@ -106,7 +113,7 @@ public class PaymentService {
         if (matched) {
             txn.setStatus("SUCCESS");
             txn.setUtr(utr);
-            txn.setRawMessage(request.getMessage());
+            txn.setRawMessage(fullText);
             txn.setUpdatedAt(new Timestamp(System.currentTimeMillis()));
 
             paymentTransactionRepository.save(txn);
@@ -116,6 +123,7 @@ public class PaymentService {
         response.put("status", matched ? "SUCCESS" : "PENDING_REVIEW");
         response.put("amount", amountStr);
         response.put("utr", utr);
+        response.put("fullText", fullText);
 
         return response;
     }
