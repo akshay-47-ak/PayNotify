@@ -19,4 +19,6 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
     List<PaymentTransaction> findByStatusAndCreatedAtAfter(String status, Timestamp createdAt);
 
     List<PaymentTransaction> findByStatusAndAmountAndCreatedAtAfter(String status, BigDecimal amount, Timestamp createdAt);
+
+    Optional<PaymentTransaction> findTopByStatusOrderByCreatedAtDesc(String status);
 }

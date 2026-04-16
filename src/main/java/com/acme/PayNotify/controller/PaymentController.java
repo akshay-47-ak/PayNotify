@@ -11,6 +11,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.Map;
 
 @RestController
@@ -30,6 +31,18 @@ public class PaymentController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(new ApiResponse<GenerateQrResponse>(false, e.getMessage(), null));
         }
+    }
+
+    @GetMapping("/latest-pending")
+    public Map<String, Object> getLatestPending() {
+        Map<String, Object> response = new HashMap<>();
+
+        PaymentTransaction txn = paymentService.getLatestPendingPayment();
+
+        response.put("success", txn != null);
+        response.put("data", txn);
+
+        return response;
     }
 
     @GetMapping("/status/{paymentId}")

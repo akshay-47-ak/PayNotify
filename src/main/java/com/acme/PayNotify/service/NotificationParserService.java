@@ -17,11 +17,17 @@ public class NotificationParserService {
             return result;
         }
 
-        String normalized = message.replaceAll("\\s+", " ").trim();
+        String normalized = message.replace('+', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
 
         String amount = extract(normalized, "(?i)(₹|rs\\.?|inr)\\s*(\\d+(\\.\\d{1,2})?)", 2);
         String utr = extract(normalized, "(?i)(utr|ref no|txn id|transaction id|rrn)[:\\s-]*([A-Za-z0-9\\-]+)", 2);
-        String transactionRef = extract(normalized, "(?i)(tr|transaction ref|merchant ref)[:\\s-]*([A-Za-z0-9\\-_]+)", 2);
+
+        String transactionRef = extract(normalized, "(?i)\\b(TXN[0-9A-Za-z\\-_]+)\\b", 1);
+        if (transactionRef == null) {
+            transactionRef = extract(normalized, "(?i)(tr|transaction ref|merchant ref)[:\\s-]*([A-Za-z0-9\\-_]+)", 2);
+        }
 
         String payerName = extractPayerName(normalized);
 

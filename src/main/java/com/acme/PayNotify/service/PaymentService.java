@@ -39,12 +39,20 @@ public class PaymentService {
             transactionRef = "TXN" + System.currentTimeMillis();
         }
 
+        String finalNote = request.getNote();
+        if (finalNote == null || finalNote.trim().isEmpty()) {
+            finalNote = "PADM PAY " + transactionRef;
+        } else if (!finalNote.toUpperCase().contains(transactionRef.toUpperCase())) {
+            finalNote = finalNote + " " + transactionRef;
+        }
+
         String upiUrl = upiUrlService.generateUpiUrl(
                 request.getUpiId(),
                 request.getMerchantName(),
                 request.getAmount(),
                 transactionRef,
-                request.getNote());
+                finalNote
+        );
 
         String qrImageBase64 = qrCodeService.generateQrBase64(upiUrl, 300, 300);
 
@@ -56,7 +64,7 @@ public class PaymentService {
         paymentTransaction.setUpiId(request.getUpiId());
         paymentTransaction.setMerchantName(request.getMerchantName());
         paymentTransaction.setAmount(request.getAmount());
-        paymentTransaction.setNote(request.getNote());
+        paymentTransaction.setNote(finalNote);
         paymentTransaction.setUpiUrl(upiUrl);
         paymentTransaction.setStatus("PENDING");
         paymentTransaction.setCreatedAt(now);
@@ -91,6 +99,32 @@ public class PaymentService {
         System.out.println("Notify message: " + request.getMessage());
         System.out.println("Notify fullText: " + fullText);
 
+        if (request.getPaymentId() == null || request.getPaymentId().trim().isEmpty()) {
+            response.put("matched", false);
+            response.put("status", "PAYMENT_ID_REQUIRED");
+            response.put("fullText", fullText);
+            return response;
+        }
+
+        PaymentTransaction txn = paymentTransactionRepository
+                .findByPaymentId(request.getPaymentId().trim())
+                .orElse(null);
+
+        if (txn == null) {
+            response.put("matched", false);
+            response.put("status", "NOT_FOUND");
+            response.put("fullText", fullText);
+            return response;
+        }
+
+        if ("SUCCESS".equalsIgnoreCase(txn.getStatus())) {
+            response.put("matched", true);
+            response.put("status", "ALREADY_SUCCESS");
+            response.put("paymentId", txn.getPaymentId());
+            response.put("fullText", fullText);
+            return response;
+        }
+
         Map<String, String> parsed = notificationParserService.parse(fullText);
 
         String amountStr = parsed.get("amount");
@@ -107,113 +141,61 @@ public class PaymentService {
             }
         }
 
-        if (utr != null && !utr.trim().isEmpty()) {
-            Optional<PaymentTransaction> existingByUtr = paymentTransactionRepository.findByUtr(utr.trim());
-            if (existingByUtr.isPresent()) {
-                PaymentTransaction alreadyMatched = existingByUtr.get();
+        boolean amountMatched = false;
+        boolean refMatched = false;
 
-                response.put("matched", true);
-                response.put("status", "DUPLICATE_NOTIFICATION");
-                response.put("paymentId", alreadyMatched.getPaymentId());
-                response.put("amount", amountStr);
-                response.put("utr", utr);
-                response.put("payerName", payerName);
-                response.put("transactionRef", parsedTransactionRef);
-                response.put("fullText", fullText);
-                return response;
-            }
+        if (receivedAmount != null && txn.getAmount() != null
+                && txn.getAmount().compareTo(receivedAmount) == 0) {
+            amountMatched = true;
         }
 
-        PaymentTransaction bestTxn = null;
-        int bestScore = -1;
+        String normalizedFullText = normalizeText(fullText);
+        String normalizedTxnRef = normalizeText(txn.getTransactionRef());
+        String normalizedNote = normalizeText(txn.getNote());
 
-        if (request.getPaymentId() != null && !request.getPaymentId().trim().isEmpty()) {
-            Optional<PaymentTransaction> txnOpt = paymentTransactionRepository.findByPaymentId(request.getPaymentId().trim());
-            if (txnOpt.isPresent()) {
-                PaymentTransaction txn = txnOpt.get();
-                int score = calculateMatchScore(txn, receivedAmount, payerName, utr, parsedTransactionRef, fullText);
-                bestTxn = txn;
-                bestScore = score;
-            }
+        if (normalizedTxnRef != null && !normalizedTxnRef.isEmpty()
+                && normalizedFullText.contains(normalizedTxnRef)) {
+            refMatched = true;
         }
 
-        if ((bestTxn == null || bestScore < 80)
-                && parsedTransactionRef != null
-                && !parsedTransactionRef.trim().isEmpty()) {
-
-            Optional<PaymentTransaction> txnOpt = paymentTransactionRepository.findByTransactionRef(parsedTransactionRef.trim());
-            if (txnOpt.isPresent()) {
-                PaymentTransaction txn = txnOpt.get();
-                int score = calculateMatchScore(txn, receivedAmount, payerName, utr, parsedTransactionRef, fullText);
-                if (score > bestScore) {
-                    bestTxn = txn;
-                    bestScore = score;
-                }
-            }
+        if (!refMatched && normalizedNote != null && !normalizedNote.isEmpty()
+                && normalizedFullText.contains(normalizedNote)) {
+            refMatched = true;
         }
 
-        Timestamp windowStart = new Timestamp(System.currentTimeMillis() - (15 * 60 * 1000));
-
-        if (receivedAmount != null) {
-            List<PaymentTransaction> candidates =
-                    paymentTransactionRepository.findByStatusAndAmountAndCreatedAtAfter("PENDING", receivedAmount, windowStart);
-
-            for (PaymentTransaction txn : candidates) {
-                int score = calculateMatchScore(txn, receivedAmount, payerName, utr, parsedTransactionRef, fullText);
-                if (score > bestScore) {
-                    bestTxn = txn;
-                    bestScore = score;
-                }
-            }
-        } else {
-            List<PaymentTransaction> candidates =
-                    paymentTransactionRepository.findByStatusAndCreatedAtAfter("PENDING", windowStart);
-
-            for (PaymentTransaction txn : candidates) {
-                int score = calculateMatchScore(txn, receivedAmount, payerName, utr, parsedTransactionRef, fullText);
-                if (score > bestScore) {
-                    bestTxn = txn;
-                    bestScore = score;
-                }
-            }
-        }
-
-        boolean matched = bestTxn != null && bestScore >= 40;
+        boolean matched = amountMatched || refMatched;
 
         if (matched) {
-            if ("SUCCESS".equalsIgnoreCase(bestTxn.getStatus())) {
-                response.put("matched", true);
-                response.put("status", "ALREADY_SUCCESS");
-                response.put("paymentId", bestTxn.getPaymentId());
-                response.put("score", bestScore);
-                response.put("amount", amountStr);
-                response.put("utr", utr);
-                response.put("payerName", payerName);
-                response.put("transactionRef", parsedTransactionRef);
-                response.put("fullText", fullText);
-                return response;
-            }
+            txn.setStatus("SUCCESS");
+            txn.setUtr(utr);
+            txn.setPayerName(payerName);
+            txn.setRawMessage(fullText);
+            txn.setUpdatedAt(new Timestamp(System.currentTimeMillis()));
 
-            bestTxn.setStatus("SUCCESS");
-            bestTxn.setUtr(utr);
-            bestTxn.setPayerName(payerName);
-            bestTxn.setRawMessage(fullText);
-            bestTxn.setUpdatedAt(new Timestamp(System.currentTimeMillis()));
-
-            paymentTransactionRepository.save(bestTxn);
+            paymentTransactionRepository.save(txn);
         }
 
         response.put("matched", matched);
         response.put("status", matched ? "SUCCESS" : "PENDING_REVIEW");
-        response.put("paymentId", matched ? bestTxn.getPaymentId() : null);
-        response.put("score", bestScore);
+        response.put("paymentId", txn.getPaymentId());
+        response.put("transactionRef", txn.getTransactionRef());
         response.put("amount", amountStr);
         response.put("utr", utr);
         response.put("payerName", payerName);
-        response.put("transactionRef", parsedTransactionRef);
         response.put("fullText", fullText);
 
         return response;
+    }
+
+    private String normalizeText(String text) {
+        if (text == null) {
+            return null;
+        }
+
+        return text.replace('+', ' ')
+                .replaceAll("\\s+", " ")
+                .trim()
+                .toLowerCase();
     }
 
     private int calculateMatchScore(
@@ -280,5 +262,11 @@ public class PaymentService {
         }
 
         return score;
+    }
+
+    public PaymentTransaction getLatestPendingPayment() {
+        return paymentTransactionRepository
+                .findTopByStatusOrderByCreatedAtDesc("PENDING")
+                .orElse(null);
     }
 }
