@@ -11,9 +11,9 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-
 
 @Service
 public class PaymentService {
@@ -75,7 +75,7 @@ public class PaymentService {
 
     public PaymentTransaction getPaymentStatus(String paymentId) {
         Optional<PaymentTransaction> optional = paymentTransactionRepository.findByPaymentId(paymentId);
-        return optional.isPresent() ? optional.get() : null;
+        return optional.orElse(null);
     }
 
     public Map<String, Object> processNotification(PaymentNotificationRequest request) {
@@ -85,6 +85,8 @@ public class PaymentService {
         String fullText = ((request.getTitle() != null ? request.getTitle() : "") + " "
                 + (request.getMessage() != null ? request.getMessage() : "")).trim();
 
+        System.out.println("Notify paymentId: " + request.getPaymentId());
+        System.out.println("Notify packageName: " + request.getPackageName());
         System.out.println("Notify title: " + request.getTitle());
         System.out.println("Notify message: " + request.getMessage());
         System.out.println("Notify fullText: " + fullText);
@@ -97,7 +99,7 @@ public class PaymentService {
         String parsedTransactionRef = parsed.get("transactionRef");
 
         BigDecimal receivedAmount = null;
-        if (amountStr != null) {
+        if (amountStr != null && !amountStr.trim().isEmpty()) {
             try {
                 receivedAmount = new BigDecimal(amountStr);
             } catch (Exception e) {
@@ -105,17 +107,18 @@ public class PaymentService {
             }
         }
 
-        // duplicate protection by UTR
         if (utr != null && !utr.trim().isEmpty()) {
-            Optional<PaymentTransaction> existingByUtr = paymentTransactionRepository.findByUtr(utr);
+            Optional<PaymentTransaction> existingByUtr = paymentTransactionRepository.findByUtr(utr.trim());
             if (existingByUtr.isPresent()) {
                 PaymentTransaction alreadyMatched = existingByUtr.get();
+
                 response.put("matched", true);
                 response.put("status", "DUPLICATE_NOTIFICATION");
                 response.put("paymentId", alreadyMatched.getPaymentId());
                 response.put("amount", amountStr);
                 response.put("utr", utr);
                 response.put("payerName", payerName);
+                response.put("transactionRef", parsedTransactionRef);
                 response.put("fullText", fullText);
                 return response;
             }
@@ -124,7 +127,6 @@ public class PaymentService {
         PaymentTransaction bestTxn = null;
         int bestScore = -1;
 
-        // 1. strong direct hint by paymentId if provided
         if (request.getPaymentId() != null && !request.getPaymentId().trim().isEmpty()) {
             Optional<PaymentTransaction> txnOpt = paymentTransactionRepository.findByPaymentId(request.getPaymentId().trim());
             if (txnOpt.isPresent()) {
@@ -135,8 +137,10 @@ public class PaymentService {
             }
         }
 
-        // 2. strong hint by transactionRef if parser found one
-        if ((bestTxn == null || bestScore < 80) && parsedTransactionRef != null && !parsedTransactionRef.trim().isEmpty()) {
+        if ((bestTxn == null || bestScore < 80)
+                && parsedTransactionRef != null
+                && !parsedTransactionRef.trim().isEmpty()) {
+
             Optional<PaymentTransaction> txnOpt = paymentTransactionRepository.findByTransactionRef(parsedTransactionRef.trim());
             if (txnOpt.isPresent()) {
                 PaymentTransaction txn = txnOpt.get();
@@ -148,10 +152,13 @@ public class PaymentService {
             }
         }
 
-        // 3. fallback: recent pending transactions
-        Timestamp windowStart = new Timestamp(System.currentTimeMillis() - (15 * 60 * 1000)); // 15 min
+        Timestamp windowStart = new Timestamp(System.currentTimeMillis() - (15 * 60 * 1000));
+
         if (receivedAmount != null) {
-            for (PaymentTransaction txn : paymentTransactionRepository.findByStatusAndAmountAndCreatedAtAfter("PENDING", receivedAmount, windowStart)) {
+            List<PaymentTransaction> candidates =
+                    paymentTransactionRepository.findByStatusAndAmountAndCreatedAtAfter("PENDING", receivedAmount, windowStart);
+
+            for (PaymentTransaction txn : candidates) {
                 int score = calculateMatchScore(txn, receivedAmount, payerName, utr, parsedTransactionRef, fullText);
                 if (score > bestScore) {
                     bestTxn = txn;
@@ -159,7 +166,10 @@ public class PaymentService {
                 }
             }
         } else {
-            for (PaymentTransaction txn : paymentTransactionRepository.findByStatusAndCreatedAtAfter("PENDING", windowStart)) {
+            List<PaymentTransaction> candidates =
+                    paymentTransactionRepository.findByStatusAndCreatedAtAfter("PENDING", windowStart);
+
+            for (PaymentTransaction txn : candidates) {
                 int score = calculateMatchScore(txn, receivedAmount, payerName, utr, parsedTransactionRef, fullText);
                 if (score > bestScore) {
                     bestTxn = txn;
@@ -171,6 +181,19 @@ public class PaymentService {
         boolean matched = bestTxn != null && bestScore >= 40;
 
         if (matched) {
+            if ("SUCCESS".equalsIgnoreCase(bestTxn.getStatus())) {
+                response.put("matched", true);
+                response.put("status", "ALREADY_SUCCESS");
+                response.put("paymentId", bestTxn.getPaymentId());
+                response.put("score", bestScore);
+                response.put("amount", amountStr);
+                response.put("utr", utr);
+                response.put("payerName", payerName);
+                response.put("transactionRef", parsedTransactionRef);
+                response.put("fullText", fullText);
+                return response;
+            }
+
             bestTxn.setStatus("SUCCESS");
             bestTxn.setUtr(utr);
             bestTxn.setPayerName(payerName);
@@ -211,40 +234,49 @@ public class PaymentService {
 
         int score = 0;
 
-        if (receivedAmount != null && txn.getAmount() != null
+        if (receivedAmount != null
+                && txn.getAmount() != null
                 && txn.getAmount().compareTo(receivedAmount) == 0) {
             score += 40;
         }
 
-        if (parsedTransactionRef != null && txn.getTransactionRef() != null
+        if (parsedTransactionRef != null
+                && txn.getTransactionRef() != null
                 && parsedTransactionRef.equalsIgnoreCase(txn.getTransactionRef())) {
             score += 80;
         }
 
-        if (txn.getTransactionRef() != null && fullText != null
+        if (txn.getTransactionRef() != null
+                && fullText != null
                 && fullText.toLowerCase().contains(txn.getTransactionRef().toLowerCase())) {
             score += 80;
         }
 
-        if (txn.getNote() != null && fullText != null
+        if (txn.getNote() != null
+                && fullText != null
                 && fullText.toLowerCase().contains(txn.getNote().toLowerCase())) {
             score += 20;
         }
 
-        if (payerName != null && txn.getPayerName() != null
+        if (payerName != null
+                && txn.getPayerName() != null
                 && payerName.equalsIgnoreCase(txn.getPayerName())) {
             score += 20;
         }
 
-        long ageMillis = System.currentTimeMillis() - txn.getCreatedAt().getTime();
-        if (ageMillis <= 5 * 60 * 1000) {
-            score += 20;
-        } else if (ageMillis <= 15 * 60 * 1000) {
-            score += 10;
+        if (utr != null
+                && txn.getUtr() != null
+                && utr.equalsIgnoreCase(txn.getUtr())) {
+            score += 100;
         }
 
-        if (utr != null && txn.getUtr() != null && utr.equalsIgnoreCase(txn.getUtr())) {
-            score += 100;
+        if (txn.getCreatedAt() != null) {
+            long ageMillis = System.currentTimeMillis() - txn.getCreatedAt().getTime();
+            if (ageMillis <= 5 * 60 * 1000) {
+                score += 20;
+            } else if (ageMillis <= 15 * 60 * 1000) {
+                score += 10;
+            }
         }
 
         return score;
