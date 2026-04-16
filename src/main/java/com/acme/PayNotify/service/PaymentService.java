@@ -34,32 +34,39 @@ public class PaymentService {
 
         String paymentId = "PAY" + System.currentTimeMillis();
 
+        String transactionRef = request.getTransactionRef();
+        if (transactionRef == null || transactionRef.trim().isEmpty()) {
+            transactionRef = "TXN" + System.currentTimeMillis();
+        }
+
         String upiUrl = upiUrlService.generateUpiUrl(
                 request.getUpiId(),
                 request.getMerchantName(),
                 request.getAmount(),
-                request.getTransactionRef(),
+                transactionRef,
                 request.getNote());
 
         String qrImageBase64 = qrCodeService.generateQrBase64(upiUrl, 300, 300);
 
+        Timestamp now = new Timestamp(System.currentTimeMillis());
+
         PaymentTransaction paymentTransaction = new PaymentTransaction();
         paymentTransaction.setPaymentId(paymentId);
-        paymentTransaction.setTransactionRef(request.getTransactionRef());
+        paymentTransaction.setTransactionRef(transactionRef);
         paymentTransaction.setUpiId(request.getUpiId());
         paymentTransaction.setMerchantName(request.getMerchantName());
         paymentTransaction.setAmount(request.getAmount());
         paymentTransaction.setNote(request.getNote());
         paymentTransaction.setUpiUrl(upiUrl);
         paymentTransaction.setStatus("PENDING");
-        paymentTransaction.setCreatedAt(new Timestamp(System.currentTimeMillis()));
-        paymentTransaction.setUpdatedAt(new Timestamp(System.currentTimeMillis()));
+        paymentTransaction.setCreatedAt(now);
+        paymentTransaction.setUpdatedAt(now);
 
         paymentTransactionRepository.save(paymentTransaction);
 
         GenerateQrResponse response = new GenerateQrResponse();
         response.setPaymentId(paymentId);
-        response.setTransactionRef(request.getTransactionRef());
+        response.setTransactionRef(transactionRef);
         response.setUpiUrl(upiUrl);
         response.setQrImageBase64(qrImageBase64);
 
@@ -73,17 +80,7 @@ public class PaymentService {
 
     public Map<String, Object> processNotification(PaymentNotificationRequest request) {
 
-        PaymentTransaction txn = paymentTransactionRepository
-                .findByPaymentId(request.getPaymentId())
-                .orElse(null);
-
         Map<String, Object> response = new HashMap<String, Object>();
-
-        if (txn == null) {
-            response.put("matched", false);
-            response.put("status", "NOT_FOUND");
-            return response;
-        }
 
         String fullText = ((request.getTitle() != null ? request.getTitle() : "") + " "
                 + (request.getMessage() != null ? request.getMessage() : "")).trim();
@@ -96,35 +93,160 @@ public class PaymentService {
 
         String amountStr = parsed.get("amount");
         String utr = parsed.get("utr");
+        String payerName = parsed.get("payerName");
+        String parsedTransactionRef = parsed.get("transactionRef");
 
-        boolean matched = false;
-
+        BigDecimal receivedAmount = null;
         if (amountStr != null) {
             try {
-                BigDecimal receivedAmount = new BigDecimal(amountStr);
-                if (txn.getAmount() != null && txn.getAmount().compareTo(receivedAmount) == 0) {
-                    matched = true;
-                }
+                receivedAmount = new BigDecimal(amountStr);
             } catch (Exception e) {
-                // ignore parsing error
+                System.out.println("Amount parse failed: " + amountStr);
             }
         }
 
-        if (matched) {
-            txn.setStatus("SUCCESS");
-            txn.setUtr(utr);
-            txn.setRawMessage(fullText);
-            txn.setUpdatedAt(new Timestamp(System.currentTimeMillis()));
+        // duplicate protection by UTR
+        if (utr != null && !utr.trim().isEmpty()) {
+            Optional<PaymentTransaction> existingByUtr = paymentTransactionRepository.findByUtr(utr);
+            if (existingByUtr.isPresent()) {
+                PaymentTransaction alreadyMatched = existingByUtr.get();
+                response.put("matched", true);
+                response.put("status", "DUPLICATE_NOTIFICATION");
+                response.put("paymentId", alreadyMatched.getPaymentId());
+                response.put("amount", amountStr);
+                response.put("utr", utr);
+                response.put("payerName", payerName);
+                response.put("fullText", fullText);
+                return response;
+            }
+        }
 
-            paymentTransactionRepository.save(txn);
+        PaymentTransaction bestTxn = null;
+        int bestScore = -1;
+
+        // 1. strong direct hint by paymentId if provided
+        if (request.getPaymentId() != null && !request.getPaymentId().trim().isEmpty()) {
+            Optional<PaymentTransaction> txnOpt = paymentTransactionRepository.findByPaymentId(request.getPaymentId().trim());
+            if (txnOpt.isPresent()) {
+                PaymentTransaction txn = txnOpt.get();
+                int score = calculateMatchScore(txn, receivedAmount, payerName, utr, parsedTransactionRef, fullText);
+                bestTxn = txn;
+                bestScore = score;
+            }
+        }
+
+        // 2. strong hint by transactionRef if parser found one
+        if ((bestTxn == null || bestScore < 80) && parsedTransactionRef != null && !parsedTransactionRef.trim().isEmpty()) {
+            Optional<PaymentTransaction> txnOpt = paymentTransactionRepository.findByTransactionRef(parsedTransactionRef.trim());
+            if (txnOpt.isPresent()) {
+                PaymentTransaction txn = txnOpt.get();
+                int score = calculateMatchScore(txn, receivedAmount, payerName, utr, parsedTransactionRef, fullText);
+                if (score > bestScore) {
+                    bestTxn = txn;
+                    bestScore = score;
+                }
+            }
+        }
+
+        // 3. fallback: recent pending transactions
+        Timestamp windowStart = new Timestamp(System.currentTimeMillis() - (15 * 60 * 1000)); // 15 min
+        if (receivedAmount != null) {
+            for (PaymentTransaction txn : paymentTransactionRepository.findByStatusAndAmountAndCreatedAtAfter("PENDING", receivedAmount, windowStart)) {
+                int score = calculateMatchScore(txn, receivedAmount, payerName, utr, parsedTransactionRef, fullText);
+                if (score > bestScore) {
+                    bestTxn = txn;
+                    bestScore = score;
+                }
+            }
+        } else {
+            for (PaymentTransaction txn : paymentTransactionRepository.findByStatusAndCreatedAtAfter("PENDING", windowStart)) {
+                int score = calculateMatchScore(txn, receivedAmount, payerName, utr, parsedTransactionRef, fullText);
+                if (score > bestScore) {
+                    bestTxn = txn;
+                    bestScore = score;
+                }
+            }
+        }
+
+        boolean matched = bestTxn != null && bestScore >= 40;
+
+        if (matched) {
+            bestTxn.setStatus("SUCCESS");
+            bestTxn.setUtr(utr);
+            bestTxn.setPayerName(payerName);
+            bestTxn.setRawMessage(fullText);
+            bestTxn.setUpdatedAt(new Timestamp(System.currentTimeMillis()));
+
+            paymentTransactionRepository.save(bestTxn);
         }
 
         response.put("matched", matched);
         response.put("status", matched ? "SUCCESS" : "PENDING_REVIEW");
+        response.put("paymentId", matched ? bestTxn.getPaymentId() : null);
+        response.put("score", bestScore);
         response.put("amount", amountStr);
         response.put("utr", utr);
+        response.put("payerName", payerName);
+        response.put("transactionRef", parsedTransactionRef);
         response.put("fullText", fullText);
 
         return response;
+    }
+
+    private int calculateMatchScore(
+            PaymentTransaction txn,
+            BigDecimal receivedAmount,
+            String payerName,
+            String utr,
+            String parsedTransactionRef,
+            String fullText) {
+
+        if (txn == null) {
+            return -1;
+        }
+
+        if (txn.getStatus() != null && !"PENDING".equalsIgnoreCase(txn.getStatus())) {
+            return -1;
+        }
+
+        int score = 0;
+
+        if (receivedAmount != null && txn.getAmount() != null
+                && txn.getAmount().compareTo(receivedAmount) == 0) {
+            score += 40;
+        }
+
+        if (parsedTransactionRef != null && txn.getTransactionRef() != null
+                && parsedTransactionRef.equalsIgnoreCase(txn.getTransactionRef())) {
+            score += 80;
+        }
+
+        if (txn.getTransactionRef() != null && fullText != null
+                && fullText.toLowerCase().contains(txn.getTransactionRef().toLowerCase())) {
+            score += 80;
+        }
+
+        if (txn.getNote() != null && fullText != null
+                && fullText.toLowerCase().contains(txn.getNote().toLowerCase())) {
+            score += 20;
+        }
+
+        if (payerName != null && txn.getPayerName() != null
+                && payerName.equalsIgnoreCase(txn.getPayerName())) {
+            score += 20;
+        }
+
+        long ageMillis = System.currentTimeMillis() - txn.getCreatedAt().getTime();
+        if (ageMillis <= 5 * 60 * 1000) {
+            score += 20;
+        } else if (ageMillis <= 15 * 60 * 1000) {
+            score += 10;
+        }
+
+        if (utr != null && txn.getUtr() != null && utr.equalsIgnoreCase(txn.getUtr())) {
+            score += 100;
+        }
+
+        return score;
     }
 }

@@ -2,12 +2,21 @@ package com.acme.PayNotify.repository;
 
 import com.acme.PayNotify.entity.PaymentTransaction;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
+import java.sql.Timestamp;
+import java.util.List;
 import java.util.Optional;
 
+public interface PaymentTransactionRepository extends JpaRepository<PaymentTransaction, Long> {
 
-@Repository
-public interface PaymentTransactionRepository extends JpaRepository<PaymentTransaction,Long> {
     Optional<PaymentTransaction> findByPaymentId(String paymentId);
+
+    Optional<PaymentTransaction> findByTransactionRef(String transactionRef);
+
+    Optional<PaymentTransaction> findByUtr(String utr);
+
+    List<PaymentTransaction> findByStatusAndCreatedAtAfter(String status, Timestamp createdAt);
+
+    List<PaymentTransaction> findByStatusAndAmountAndCreatedAtAfter(String status, BigDecimal amount, Timestamp createdAt);
 }

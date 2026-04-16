@@ -1,31 +1,55 @@
 package com.acme.PayNotify.service;
 
+import org.springframework.stereotype.Service;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.springframework.stereotype.Service;
-
 @Service
 public class NotificationParserService {
 
     public Map<String, String> parse(String message) {
-
         Map<String, String> result = new HashMap<String, String>();
 
-        if (message == null) return result;
+        if (message == null || message.trim().isEmpty()) {
+            return result;
+        }
 
-        // Amount extraction
-        String amount = extract(message, "(?i)(₹|rs\\.?|inr)\\s*(\\d+(\\.\\d{1,2})?)", 2);
+        String normalized = message.replaceAll("\\s+", " ").trim();
 
-        // UTR extraction
-        String utr = extract(message, "(?i)(utr|ref no|txn id|transaction id)[:\\s-]*(\\w+)", 2);
+        String amount = extract(normalized, "(?i)(₹|rs\\.?|inr)\\s*(\\d+(\\.\\d{1,2})?)", 2);
+        String utr = extract(normalized, "(?i)(utr|ref no|txn id|transaction id|rrn)[:\\s-]*([A-Za-z0-9\\-]+)", 2);
+        String transactionRef = extract(normalized, "(?i)(tr|transaction ref|merchant ref)[:\\s-]*([A-Za-z0-9\\-_]+)", 2);
+
+        String payerName = extractPayerName(normalized);
 
         result.put("amount", amount);
         result.put("utr", utr);
+        result.put("transactionRef", transactionRef);
+        result.put("payerName", payerName);
+        result.put("normalizedMessage", normalized);
 
         return result;
+    }
+
+    private String extractPayerName(String text) {
+        String[] patterns = new String[] {
+                "(?i)^([A-Za-z][A-Za-z .]{1,80}?)\\s+paid\\s+you\\b",
+                "(?i)^([A-Za-z][A-Za-z .]{1,80}?)\\s+sent\\s+you\\b",
+                "(?i)received\\s+from\\s+([A-Za-z][A-Za-z .]{1,80}?)(?:\\b|₹|rs|inr)",
+                "(?i)from\\s+([A-Za-z][A-Za-z .]{1,80}?)(?:\\b|₹|rs|inr)"
+        };
+
+        for (String regex : patterns) {
+            String value = extract(text, regex, 1);
+            if (value != null && !value.trim().isEmpty()) {
+                return value.trim();
+            }
+        }
+
+        return null;
     }
 
     private String extract(String text, String regex, int group) {
