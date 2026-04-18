@@ -11,7 +11,6 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -29,6 +28,9 @@ public class PaymentService {
 
     @Autowired
     private NotificationParserService notificationParserService;
+
+    @Autowired
+    private PaymentWebSocketService paymentWebSocketService;
 
     public GenerateQrResponse generateQr(GenerateQrRequest request) throws Exception {
 
@@ -70,7 +72,9 @@ public class PaymentService {
         paymentTransaction.setCreatedAt(now);
         paymentTransaction.setUpdatedAt(now);
 
-        paymentTransactionRepository.save(paymentTransaction);
+        paymentTransaction = paymentTransactionRepository.save(paymentTransaction);
+        paymentWebSocketService.publishActivePayment(paymentTransaction, "New payment created");
+
 
         GenerateQrResponse response = new GenerateQrResponse();
         response.setPaymentId(paymentId);
@@ -172,7 +176,9 @@ public class PaymentService {
             txn.setRawMessage(fullText);
             txn.setUpdatedAt(new Timestamp(System.currentTimeMillis()));
 
-            paymentTransactionRepository.save(txn);
+            txn = paymentTransactionRepository.save(txn);
+
+            paymentWebSocketService.publishPaymentUpdate(txn, "Payment received successfully");
         }
 
         response.put("matched", matched);
@@ -183,6 +189,7 @@ public class PaymentService {
         response.put("utr", utr);
         response.put("payerName", payerName);
         response.put("fullText", fullText);
+        response.put("parsedTransactionRef", parsedTransactionRef);
 
         return response;
     }

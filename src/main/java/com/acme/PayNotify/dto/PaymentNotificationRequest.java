@@ -8,8 +8,10 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @Data
 public class PaymentNotificationRequest {
-    private String paymentId;
     private String packageName;
     private String title;
     private String message;
+
+    // optional, if flutter extracts and sends directly
+    private String transactionRef;
 }
