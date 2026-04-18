@@ -13,6 +13,7 @@ import java.sql.Timestamp;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 @Service
 public class PaymentService {
@@ -36,17 +37,11 @@ public class PaymentService {
 
         String paymentId = "PAY" + System.currentTimeMillis();
 
-        String transactionRef = request.getTransactionRef();
-        if (transactionRef == null || transactionRef.trim().isEmpty()) {
-            transactionRef = "TXN" + System.currentTimeMillis();
-        }
+        // Always generate unique transactionRef at backend
+        String transactionRef = "PADM-TXN-" + System.currentTimeMillis() + "-"
+                + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
 
-        String finalNote = request.getNote();
-        if (finalNote == null || finalNote.trim().isEmpty()) {
-            finalNote = "PADM PAY " + transactionRef;
-        } else if (!finalNote.toUpperCase().contains(transactionRef.toUpperCase())) {
-            finalNote = finalNote + " " + transactionRef;
-        }
+        String finalNote = transactionRef;
 
         String upiUrl = upiUrlService.generateUpiUrl(
                 request.getUpiId(),
@@ -75,7 +70,6 @@ public class PaymentService {
         paymentTransaction = paymentTransactionRepository.save(paymentTransaction);
         paymentWebSocketService.publishActivePayment(paymentTransaction, "New payment created");
 
-
         GenerateQrResponse response = new GenerateQrResponse();
         response.setPaymentId(paymentId);
         response.setTransactionRef(transactionRef);
@@ -97,37 +91,10 @@ public class PaymentService {
         String fullText = ((request.getTitle() != null ? request.getTitle() : "") + " "
                 + (request.getMessage() != null ? request.getMessage() : "")).trim();
 
-        System.out.println("Notify paymentId: " + request.getPaymentId());
         System.out.println("Notify packageName: " + request.getPackageName());
         System.out.println("Notify title: " + request.getTitle());
         System.out.println("Notify message: " + request.getMessage());
         System.out.println("Notify fullText: " + fullText);
-
-        if (request.getPaymentId() == null || request.getPaymentId().trim().isEmpty()) {
-            response.put("matched", false);
-            response.put("status", "PAYMENT_ID_REQUIRED");
-            response.put("fullText", fullText);
-            return response;
-        }
-
-        PaymentTransaction txn = paymentTransactionRepository
-                .findByPaymentId(request.getPaymentId().trim())
-                .orElse(null);
-
-        if (txn == null) {
-            response.put("matched", false);
-            response.put("status", "NOT_FOUND");
-            response.put("fullText", fullText);
-            return response;
-        }
-
-        if ("SUCCESS".equalsIgnoreCase(txn.getStatus())) {
-            response.put("matched", true);
-            response.put("status", "ALREADY_SUCCESS");
-            response.put("paymentId", txn.getPaymentId());
-            response.put("fullText", fullText);
-            return response;
-        }
 
         Map<String, String> parsed = notificationParserService.parse(fullText);
 
@@ -135,6 +102,40 @@ public class PaymentService {
         String utr = parsed.get("utr");
         String payerName = parsed.get("payerName");
         String parsedTransactionRef = parsed.get("transactionRef");
+
+        String requestTransactionRef = request.getTransactionRef();
+
+        String finalTransactionRef = firstNonBlank(requestTransactionRef, parsedTransactionRef);
+
+        response.put("parsedTransactionRef", parsedTransactionRef);
+        response.put("requestTransactionRef", requestTransactionRef);
+        response.put("finalTransactionRef", finalTransactionRef);
+        response.put("fullText", fullText);
+
+        if (finalTransactionRef == null || finalTransactionRef.trim().isEmpty()) {
+            response.put("matched", false);
+            response.put("status", "TRANSACTION_REF_NOT_FOUND");
+            return response;
+        }
+
+        PaymentTransaction txn = paymentTransactionRepository
+                .findTopByTransactionRefAndStatusOrderByCreatedAtDesc(finalTransactionRef.trim(), "PENDING")
+                .orElse(null);
+
+        if (txn == null) {
+            response.put("matched", false);
+            response.put("status", "PENDING_PAYMENT_NOT_FOUND");
+            response.put("transactionRef", finalTransactionRef);
+            return response;
+        }
+
+        if ("SUCCESS".equalsIgnoreCase(txn.getStatus())) {
+            response.put("matched", true);
+            response.put("status", "ALREADY_SUCCESS");
+            response.put("paymentId", txn.getPaymentId());
+            response.put("transactionRef", txn.getTransactionRef());
+            return response;
+        }
 
         BigDecimal receivedAmount = null;
         if (amountStr != null && !amountStr.trim().isEmpty()) {
@@ -146,52 +147,47 @@ public class PaymentService {
         }
 
         boolean amountMatched = false;
-        boolean refMatched = false;
-
         if (receivedAmount != null && txn.getAmount() != null
                 && txn.getAmount().compareTo(receivedAmount) == 0) {
             amountMatched = true;
         }
 
-        String normalizedFullText = normalizeText(fullText);
-        String normalizedTxnRef = normalizeText(txn.getTransactionRef());
-        String normalizedNote = normalizeText(txn.getNote());
+        // Main matching is txnRef, amount is additional validation
+        boolean matched = true;
 
-        if (normalizedTxnRef != null && !normalizedTxnRef.isEmpty()
-                && normalizedFullText.contains(normalizedTxnRef)) {
-            refMatched = true;
-        }
+        txn.setStatus("SUCCESS");
+        txn.setUtr(utr);
+        txn.setPayerName(payerName);
+        txn.setRawMessage(fullText);
+        txn.setUpdatedAt(new Timestamp(System.currentTimeMillis()));
 
-        if (!refMatched && normalizedNote != null && !normalizedNote.isEmpty()
-                && normalizedFullText.contains(normalizedNote)) {
-            refMatched = true;
-        }
+        txn = paymentTransactionRepository.save(txn);
 
-        boolean matched = amountMatched || refMatched;
-
-        if (matched) {
-            txn.setStatus("SUCCESS");
-            txn.setUtr(utr);
-            txn.setPayerName(payerName);
-            txn.setRawMessage(fullText);
-            txn.setUpdatedAt(new Timestamp(System.currentTimeMillis()));
-
-            txn = paymentTransactionRepository.save(txn);
-
-            paymentWebSocketService.publishPaymentUpdate(txn, "Payment received successfully");
-        }
+        paymentWebSocketService.publishPaymentUpdate(txn, "Payment received successfully");
 
         response.put("matched", matched);
-        response.put("status", matched ? "SUCCESS" : "PENDING_REVIEW");
+        response.put("status", "SUCCESS");
         response.put("paymentId", txn.getPaymentId());
         response.put("transactionRef", txn.getTransactionRef());
-        response.put("amount", amountStr);
+        response.put("expectedAmount", txn.getAmount());
+        response.put("receivedAmount", amountStr);
+        response.put("amountMatched", amountMatched);
         response.put("utr", utr);
         response.put("payerName", payerName);
-        response.put("fullText", fullText);
-        response.put("parsedTransactionRef", parsedTransactionRef);
 
         return response;
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.trim().isEmpty()) {
+                return value.trim();
+            }
+        }
+        return null;
     }
 
     private String normalizeText(String text) {
