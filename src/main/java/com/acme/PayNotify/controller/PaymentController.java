@@ -71,8 +71,4 @@ public class PaymentController {
         }
     }
 
-    @GetMapping("/test")
-    public String test() {
-        return "OK";
-    }
 }
