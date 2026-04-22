@@ -1,14 +1,17 @@
 package com.acme.PayNotify.service;
 
+import org.springframework.stereotype.Service;
+
 import java.math.BigDecimal;
 import java.net.URLEncoder;
-
-import org.springframework.stereotype.Service;
+import java.nio.charset.StandardCharsets;
 
 @Service
 public class UpiUrlService {
 
-    public String generateUpiUrl(String upiId, String merchantName, BigDecimal amount, String transactionRef, String note) {
+    public String generateUpiUrl(String upiId, String merchantName, BigDecimal amount,
+                                 String transactionRef, String note) {
+
         StringBuilder sb = new StringBuilder("upi://pay?");
         sb.append("pa=").append(encodeValue(upiId));
         sb.append("&pn=").append(encodeValue(merchantName));
@@ -28,7 +31,7 @@ public class UpiUrlService {
 
     private String encodeValue(String value) {
         try {
-            return URLEncoder.encode(value, "UTF-8");
+            return URLEncoder.encode(value, StandardCharsets.UTF_8.toString());
         } catch (Exception e) {
             return value;
         }

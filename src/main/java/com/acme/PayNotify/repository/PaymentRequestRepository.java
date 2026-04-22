@@ -27,4 +27,9 @@ public interface PaymentRequestRepository extends JpaRepository<PaymentRequest, 
             String terminalId,
             String status
     );
+    Optional<PaymentRequest> findTopByEnterpriseAndTerminalIdAndStatusOrderByCreatedAtDesc(
+            EnterpriseMaster enterprise,
+            String terminalId,
+            String status
+    );
 }

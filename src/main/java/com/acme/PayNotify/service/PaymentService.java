@@ -3,23 +3,35 @@ package com.acme.PayNotify.service;
 import com.acme.PayNotify.dto.GenerateQrRequest;
 import com.acme.PayNotify.dto.GenerateQrResponse;
 import com.acme.PayNotify.dto.PaymentNotificationRequest;
-import com.acme.PayNotify.entity.PaymentTransaction;
-import com.acme.PayNotify.repository.PaymentTransactionRepository;
+import com.acme.PayNotify.dto.PaymentNotificationResponse;
+import com.acme.PayNotify.dto.PaymentStatusResponse;
+import com.acme.PayNotify.entity.EnterpriseMaster;
+import com.acme.PayNotify.entity.PaymentNotificationLog;
+import com.acme.PayNotify.entity.PaymentRequest;
+import com.acme.PayNotify.entity.UserDevice;
+import com.acme.PayNotify.repository.PaymentNotificationLogRepository;
+import com.acme.PayNotify.repository.PaymentRequestRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
-import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
 
 @Service
 public class PaymentService {
 
     @Autowired
-    private PaymentTransactionRepository paymentTransactionRepository;
+    private EnterpriseService enterpriseService;
+
+    @Autowired
+    private DeviceRegistrationService deviceRegistrationService;
+
+    @Autowired
+    private PaymentRequestRepository paymentRequestRepository;
+
+    @Autowired
+    private PaymentNotificationLogRepository paymentNotificationLogRepository;
 
     @Autowired
     private UpiUrlService upiUrlService;
@@ -35,12 +47,30 @@ public class PaymentService {
 
     public GenerateQrResponse generateQr(GenerateQrRequest request) throws Exception {
 
-        String paymentId = "PAY" + System.currentTimeMillis();
+        if (request == null) {
+            throw new RuntimeException("Generate QR request is required");
+        }
 
-        // Always generate unique transactionRef at backend
-        String transactionRef = "PADM-TXN-" + System.currentTimeMillis() + "-"
-                + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
+        if (request.getAmount() == null || request.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new RuntimeException("Amount must be greater than zero");
+        }
 
+        if (request.getUpiId() == null || request.getUpiId().trim().isEmpty()) {
+            throw new RuntimeException("UPI ID is required");
+        }
+
+        if (request.getMerchantName() == null || request.getMerchantName().trim().isEmpty()) {
+            throw new RuntimeException("Merchant name is required");
+        }
+
+        EnterpriseMaster enterprise = enterpriseService.getValidatedEnterprise(request.getEnterpriseCode());
+        UserDevice terminalDevice = deviceRegistrationService.getActiveTerminal(
+                request.getEnterpriseCode(),
+                request.getTerminalId()
+        );
+
+        String paymentId = "PAY-" + System.currentTimeMillis();
+        String transactionRef = generateTransactionRef();
         String finalNote = transactionRef;
 
         String upiUrl = upiUrlService.generateUpiUrl(
@@ -55,46 +85,103 @@ public class PaymentService {
 
         Timestamp now = new Timestamp(System.currentTimeMillis());
 
-        PaymentTransaction paymentTransaction = new PaymentTransaction();
-        paymentTransaction.setPaymentId(paymentId);
-        paymentTransaction.setTransactionRef(transactionRef);
-        paymentTransaction.setUpiId(request.getUpiId());
-        paymentTransaction.setMerchantName(request.getMerchantName());
-        paymentTransaction.setAmount(request.getAmount());
-        paymentTransaction.setNote(finalNote);
-        paymentTransaction.setUpiUrl(upiUrl);
-        paymentTransaction.setStatus("PENDING");
-        paymentTransaction.setCreatedAt(now);
-        paymentTransaction.setUpdatedAt(now);
+        PaymentRequest payment = new PaymentRequest();
+        payment.setPaymentId(paymentId);
+        payment.setEnterprise(enterprise);
+        payment.setUserDevice(terminalDevice);
+        payment.setTerminalId(terminalDevice.getTerminalId());
+        payment.setTransactionRef(transactionRef);
+        payment.setUpiId(request.getUpiId().trim());
+        payment.setMerchantName(request.getMerchantName().trim());
+        payment.setAmount(request.getAmount());
+        payment.setNote(finalNote);
+        payment.setUpiUrl(upiUrl);
+        payment.setStatus("PENDING");
+        payment.setCreatedAt(now);
+        payment.setUpdatedAt(now);
 
-        paymentTransaction = paymentTransactionRepository.save(paymentTransaction);
-        paymentWebSocketService.publishActivePayment(paymentTransaction, "New payment created");
+        payment = paymentRequestRepository.save(payment);
+
+        paymentWebSocketService.publishPaymentCreated(payment, "QR generated successfully");
 
         GenerateQrResponse response = new GenerateQrResponse();
-        response.setPaymentId(paymentId);
-        response.setTransactionRef(transactionRef);
-        response.setUpiUrl(upiUrl);
+        response.setPaymentId(payment.getPaymentId());
+        response.setTransactionRef(payment.getTransactionRef());
+        response.setTerminalId(payment.getTerminalId());
+        response.setUpiUrl(payment.getUpiUrl());
         response.setQrImageBase64(qrImageBase64);
+        response.setStatus(payment.getStatus());
 
         return response;
     }
 
-    public PaymentTransaction getPaymentStatus(String paymentId) {
-        Optional<PaymentTransaction> optional = paymentTransactionRepository.findByPaymentId(paymentId);
-        return optional.orElse(null);
+    public PaymentStatusResponse getPaymentStatus(String paymentId) {
+        PaymentRequest payment = paymentRequestRepository.findByPaymentId(paymentId).orElse(null);
+
+        if (payment == null) {
+            return null;
+        }
+
+        PaymentStatusResponse response = new PaymentStatusResponse();
+        response.setPaymentId(payment.getPaymentId());
+        response.setEnterpriseCode(payment.getEnterprise().getEnterpriseCode());
+        response.setTerminalId(payment.getTerminalId());
+        response.setTransactionRef(payment.getTransactionRef());
+        response.setAmount(payment.getAmount());
+        response.setStatus(payment.getStatus());
+        response.setPayerName(payment.getPayerName());
+        response.setUtr(payment.getUtr());
+        response.setCreatedAt(payment.getCreatedAt());
+        response.setUpdatedAt(payment.getUpdatedAt());
+
+        return response;
     }
 
-    public Map<String, Object> processNotification(PaymentNotificationRequest request) {
+    public PaymentStatusResponse getLatestPendingPayment(String enterpriseCode, String terminalId) {
+        EnterpriseMaster enterprise = enterpriseService.getValidatedEnterprise(enterpriseCode);
 
-        Map<String, Object> response = new HashMap<String, Object>();
+        PaymentRequest payment = paymentRequestRepository
+                .findTopByEnterpriseAndTerminalIdAndStatusOrderByCreatedAtDesc(
+                        enterprise,
+                        terminalId,
+                        "PENDING"
+                )
+                .stream()
+                .findFirst()
+                .orElse(null);
+
+        if (payment == null) {
+            return null;
+        }
+
+        PaymentStatusResponse response = new PaymentStatusResponse();
+        response.setPaymentId(payment.getPaymentId());
+        response.setEnterpriseCode(payment.getEnterprise().getEnterpriseCode());
+        response.setTerminalId(payment.getTerminalId());
+        response.setTransactionRef(payment.getTransactionRef());
+        response.setAmount(payment.getAmount());
+        response.setStatus(payment.getStatus());
+        response.setPayerName(payment.getPayerName());
+        response.setUtr(payment.getUtr());
+        response.setCreatedAt(payment.getCreatedAt());
+        response.setUpdatedAt(payment.getUpdatedAt());
+
+        return response;
+    }
+
+    public PaymentNotificationResponse processNotification(PaymentNotificationRequest request) {
+
+        if (request == null) {
+            throw new RuntimeException("Notification request is required");
+        }
+
+        UserDevice device = deviceRegistrationService.getActiveDevice(
+                request.getEnterpriseCode(),
+                request.getDeviceIdentifier()
+        );
 
         String fullText = ((request.getTitle() != null ? request.getTitle() : "") + " "
                 + (request.getMessage() != null ? request.getMessage() : "")).trim();
-
-        System.out.println("Notify packageName: " + request.getPackageName());
-        System.out.println("Notify title: " + request.getTitle());
-        System.out.println("Notify message: " + request.getMessage());
-        System.out.println("Notify fullText: " + fullText);
 
         Map<String, String> parsed = notificationParserService.parse(fullText);
 
@@ -102,38 +189,33 @@ public class PaymentService {
         String utr = parsed.get("utr");
         String payerName = parsed.get("payerName");
         String parsedTransactionRef = parsed.get("transactionRef");
-
         String requestTransactionRef = request.getTransactionRef();
 
         String finalTransactionRef = firstNonBlank(requestTransactionRef, parsedTransactionRef);
 
-        response.put("parsedTransactionRef", parsedTransactionRef);
-        response.put("requestTransactionRef", requestTransactionRef);
-        response.put("finalTransactionRef", finalTransactionRef);
-        response.put("fullText", fullText);
+        saveNotificationLog(device, request, fullText, parsed, finalTransactionRef);
+
+        PaymentNotificationResponse response = new PaymentNotificationResponse();
+        response.setTransactionRef(finalTransactionRef);
+        response.setReceivedAmount(amountStr);
+        response.setUtr(utr);
+        response.setPayerName(payerName);
 
         if (finalTransactionRef == null || finalTransactionRef.trim().isEmpty()) {
-            response.put("matched", false);
-            response.put("status", "TRANSACTION_REF_NOT_FOUND");
+            response.setMatched(false);
+            response.setStatus("TRANSACTION_REF_NOT_FOUND");
+            response.setMessage("Transaction reference not found in notification");
             return response;
         }
 
-        PaymentTransaction txn = paymentTransactionRepository
+        PaymentRequest payment = paymentRequestRepository
                 .findTopByTransactionRefAndStatusOrderByCreatedAtDesc(finalTransactionRef.trim(), "PENDING")
                 .orElse(null);
 
-        if (txn == null) {
-            response.put("matched", false);
-            response.put("status", "PENDING_PAYMENT_NOT_FOUND");
-            response.put("transactionRef", finalTransactionRef);
-            return response;
-        }
-
-        if ("SUCCESS".equalsIgnoreCase(txn.getStatus())) {
-            response.put("matched", true);
-            response.put("status", "ALREADY_SUCCESS");
-            response.put("paymentId", txn.getPaymentId());
-            response.put("transactionRef", txn.getTransactionRef());
+        if (payment == null) {
+            response.setMatched(false);
+            response.setStatus("PENDING_PAYMENT_NOT_FOUND");
+            response.setMessage("Pending payment not found for transaction reference");
             return response;
         }
 
@@ -141,135 +223,73 @@ public class PaymentService {
         if (amountStr != null && !amountStr.trim().isEmpty()) {
             try {
                 receivedAmount = new BigDecimal(amountStr);
-            } catch (Exception e) {
-                System.out.println("Amount parse failed: " + amountStr);
+            } catch (Exception ignored) {
             }
         }
 
         boolean amountMatched = false;
-        if (receivedAmount != null && txn.getAmount() != null
-                && txn.getAmount().compareTo(receivedAmount) == 0) {
+        if (receivedAmount != null && payment.getAmount() != null
+                && payment.getAmount().compareTo(receivedAmount) == 0) {
             amountMatched = true;
         }
 
-        // Main matching is txnRef, amount is additional validation
-        boolean matched = true;
+        payment.setStatus("SUCCESS");
+        payment.setUtr(utr);
+        payment.setPayerName(payerName);
+        payment.setUpdatedAt(new Timestamp(System.currentTimeMillis()));
 
-        txn.setStatus("SUCCESS");
-        txn.setUtr(utr);
-        txn.setPayerName(payerName);
-        txn.setRawMessage(fullText);
-        txn.setUpdatedAt(new Timestamp(System.currentTimeMillis()));
+        payment = paymentRequestRepository.save(payment);
 
-        txn = paymentTransactionRepository.save(txn);
+        paymentWebSocketService.publishPaymentUpdate(payment, "Payment received successfully");
 
-        paymentWebSocketService.publishPaymentUpdate(txn, "Payment received successfully");
-
-        response.put("matched", matched);
-        response.put("status", "SUCCESS");
-        response.put("paymentId", txn.getPaymentId());
-        response.put("transactionRef", txn.getTransactionRef());
-        response.put("expectedAmount", txn.getAmount());
-        response.put("receivedAmount", amountStr);
-        response.put("amountMatched", amountMatched);
-        response.put("utr", utr);
-        response.put("payerName", payerName);
+        response.setMatched(true);
+        response.setStatus("SUCCESS");
+        response.setPaymentId(payment.getPaymentId());
+        response.setTransactionRef(payment.getTransactionRef());
+        response.setExpectedAmount(payment.getAmount());
+        response.setAmountMatched(amountMatched);
+        response.setMessage("Payment matched successfully");
 
         return response;
+    }
+
+    private void saveNotificationLog(
+            UserDevice device,
+            PaymentNotificationRequest request,
+            String fullText,
+            Map<String, String> parsed,
+            String finalTransactionRef) {
+
+        PaymentNotificationLog log = new PaymentNotificationLog();
+        log.setEnterprise(device.getEnterprise());
+        log.setUserDevice(device);
+        log.setPackageName(request.getPackageName());
+        log.setTitle(request.getTitle());
+        log.setMessage(request.getMessage());
+        log.setRawText(fullText);
+        log.setParsedTransactionRef(finalTransactionRef);
+        log.setParsedAmount(parsed.get("amount"));
+        log.setUtr(parsed.get("utr"));
+        log.setPayerName(parsed.get("payerName"));
+        log.setCreatedAt(new Timestamp(System.currentTimeMillis()));
+
+        paymentNotificationLogRepository.save(log);
+    }
+
+    private String generateTransactionRef() {
+        return "PADM-TXN-" + (System.currentTimeMillis() % 1000000);
     }
 
     private String firstNonBlank(String... values) {
         if (values == null) {
             return null;
         }
+
         for (String value : values) {
             if (value != null && !value.trim().isEmpty()) {
                 return value.trim();
             }
         }
         return null;
-    }
-
-    private String normalizeText(String text) {
-        if (text == null) {
-            return null;
-        }
-
-        return text.replace('+', ' ')
-                .replaceAll("\\s+", " ")
-                .trim()
-                .toLowerCase();
-    }
-
-    private int calculateMatchScore(
-            PaymentTransaction txn,
-            BigDecimal receivedAmount,
-            String payerName,
-            String utr,
-            String parsedTransactionRef,
-            String fullText) {
-
-        if (txn == null) {
-            return -1;
-        }
-
-        if (txn.getStatus() != null && !"PENDING".equalsIgnoreCase(txn.getStatus())) {
-            return -1;
-        }
-
-        int score = 0;
-
-        if (receivedAmount != null
-                && txn.getAmount() != null
-                && txn.getAmount().compareTo(receivedAmount) == 0) {
-            score += 40;
-        }
-
-        if (parsedTransactionRef != null
-                && txn.getTransactionRef() != null
-                && parsedTransactionRef.equalsIgnoreCase(txn.getTransactionRef())) {
-            score += 80;
-        }
-
-        if (txn.getTransactionRef() != null
-                && fullText != null
-                && fullText.toLowerCase().contains(txn.getTransactionRef().toLowerCase())) {
-            score += 80;
-        }
-
-        if (txn.getNote() != null
-                && fullText != null
-                && fullText.toLowerCase().contains(txn.getNote().toLowerCase())) {
-            score += 20;
-        }
-
-        if (payerName != null
-                && txn.getPayerName() != null
-                && payerName.equalsIgnoreCase(txn.getPayerName())) {
-            score += 20;
-        }
-
-        if (utr != null
-                && txn.getUtr() != null
-                && utr.equalsIgnoreCase(txn.getUtr())) {
-            score += 100;
-        }
-
-        if (txn.getCreatedAt() != null) {
-            long ageMillis = System.currentTimeMillis() - txn.getCreatedAt().getTime();
-            if (ageMillis <= 5 * 60 * 1000) {
-                score += 20;
-            } else if (ageMillis <= 15 * 60 * 1000) {
-                score += 10;
-            }
-        }
-
-        return score;
-    }
-
-    public PaymentTransaction getLatestPendingPayment() {
-        return paymentTransactionRepository
-                .findTopByStatusOrderByCreatedAtDesc("PENDING")
-                .orElse(null);
     }
 }

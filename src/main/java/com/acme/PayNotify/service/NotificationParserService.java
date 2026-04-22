@@ -11,7 +11,7 @@ import java.util.regex.Pattern;
 public class NotificationParserService {
 
     public Map<String, String> parse(String message) {
-        Map<String, String> result = new HashMap<String, String>();
+        Map<String, String> result = new HashMap<>();
 
         if (message == null || message.trim().isEmpty()) {
             return result;
@@ -25,7 +25,7 @@ public class NotificationParserService {
         String utr = extract(normalized, "(?i)(utr|ref no|txn id|transaction id|rrn)[:\\s-]*([A-Za-z0-9\\-]+)", 2);
 
         String transactionRef = extract(normalized,
-                "(?i)\\b([A-Z0-9]+(?:-[A-Z0-9]+)*-TXN[0-9A-Z\\-_]*|TXN[0-9A-Z\\-_]+)\\b",
+                "(?i)\\b([A-Z0-9]+(?:-[A-Z0-9]+)*-TXN[0-9A-Z\\-_]*|TXN[0-9A-Z\\-_]+|PADM-TXN-[A-Z0-9\\-_]+)\\b",
                 1);
 
         if (transactionRef == null) {
@@ -46,7 +46,7 @@ public class NotificationParserService {
     }
 
     private String extractPayerName(String text) {
-        String[] patterns = new String[] {
+        String[] patterns = new String[]{
                 "(?i)^([A-Za-z][A-Za-z .]{1,80}?)\\s+paid\\s+you\\b",
                 "(?i)^([A-Za-z][A-Za-z .]{1,80}?)\\s+sent\\s+you\\b",
                 "(?i)received\\s+from\\s+([A-Za-z][A-Za-z .]{1,80}?)(?:\\b|₹|rs|inr)",
