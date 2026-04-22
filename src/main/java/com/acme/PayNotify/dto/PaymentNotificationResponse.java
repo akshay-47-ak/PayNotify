@@ -9,16 +9,16 @@ import java.math.BigDecimal;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class PaymentStatusEvent {
+public class PaymentNotificationResponse {
 
-    private String paymentId;
-    private String enterpriseCode;
-    private String terminalId;
+    private boolean matched;
     private String status;
+    private String paymentId;
     private String transactionRef;
-    private BigDecimal amount;
-    private String payerName;
+    private BigDecimal expectedAmount;
+    private String receivedAmount;
+    private boolean amountMatched;
     private String utr;
+    private String payerName;
     private String message;
-    private Long timestamp;
 }

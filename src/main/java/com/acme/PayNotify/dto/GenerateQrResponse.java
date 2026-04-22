@@ -11,6 +11,8 @@ public class GenerateQrResponse {
 
     private String paymentId;
     private String transactionRef;
+    private String terminalId;
     private String upiUrl;
     private String qrImageBase64;
+    private String status;
 }
