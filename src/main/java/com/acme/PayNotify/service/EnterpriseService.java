@@ -1,5 +1,7 @@
 package com.acme.PayNotify.service;
 
+import com.acme.PayNotify.dto.CreateEnterpriseRequest;
+import com.acme.PayNotify.dto.CreateEnterpriseResponse;
 import com.acme.PayNotify.dto.EnterpriseValidationResponse;
 import com.acme.PayNotify.entity.EnterpriseMaster;
 import com.acme.PayNotify.repository.EnterpriseMasterRepository;
@@ -83,5 +85,44 @@ public class EnterpriseService {
         }
 
         return enterprise;
+    }
+    public CreateEnterpriseResponse createEnterprise(CreateEnterpriseRequest request) {
+        if (request == null) {
+            throw new RuntimeException("Create enterprise request is required");
+        }
+
+        if (request.getEnterpriseCode() == null || request.getEnterpriseCode().trim().isEmpty()) {
+            throw new RuntimeException("Enterprise code is required");
+        }
+
+        if (request.getEnterpriseName() == null || request.getEnterpriseName().trim().isEmpty()) {
+            throw new RuntimeException("Enterprise name is required");
+        }
+
+        String enterpriseCode = request.getEnterpriseCode().trim().toUpperCase();
+
+        boolean exists = enterpriseMasterRepository.existsByEnterpriseCode(enterpriseCode);
+        if (exists) {
+            throw new RuntimeException("Enterprise code already exists");
+        }
+
+        EnterpriseMaster enterprise = new EnterpriseMaster();
+        enterprise.setEnterpriseCode(enterpriseCode);
+        enterprise.setEnterpriseName(request.getEnterpriseName().trim());
+        enterprise.setIsActive(true);
+        enterprise.setLiveFrom(request.getLiveFrom());
+        enterprise.setCreatedAt(new Timestamp(System.currentTimeMillis()));
+
+        enterprise = enterpriseMasterRepository.save(enterprise);
+
+        CreateEnterpriseResponse response = new CreateEnterpriseResponse();
+        response.setId(enterprise.getId());
+        response.setEnterpriseCode(enterprise.getEnterpriseCode());
+        response.setEnterpriseName(enterprise.getEnterpriseName());
+        response.setIsActive(enterprise.getIsActive());
+        response.setLiveFrom(enterprise.getLiveFrom());
+        response.setCreatedAt(enterprise.getCreatedAt());
+
+        return response;
     }
 }
