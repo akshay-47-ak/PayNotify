@@ -25,6 +25,10 @@ public class DeviceRegistrationService {
             throw new RuntimeException("Device registration request is required");
         }
 
+        if (request.getEnterpriseCode() == null || request.getEnterpriseCode().trim().isEmpty()) {
+            throw new RuntimeException("Enterprise code is required");
+        }
+
         if (request.getRole() == null || request.getRole().trim().isEmpty()) {
             throw new RuntimeException("Role is required");
         }
@@ -51,7 +55,7 @@ public class DeviceRegistrationService {
 
             existingDevice = userDeviceRepository.save(existingDevice);
 
-            return buildResponse(existingDevice);
+            return buildResponse(existingDevice, enterprise);
         }
 
         UserDevice device = new UserDevice();
@@ -59,13 +63,13 @@ public class DeviceRegistrationService {
         device.setRole(role);
         device.setDeviceIdentifier(request.getDeviceIdentifier().trim());
         device.setDeviceName(request.getDeviceName());
-        device.setTerminalId(generateNextTerminalId(enterprise));
+        device.setTerminalId(generateNextTerminalId());
         device.setIsActive(true);
         device.setRegisteredAt(new Timestamp(System.currentTimeMillis()));
 
         device = userDeviceRepository.save(device);
 
-        return buildResponse(device);
+        return buildResponse(device, enterprise);
     }
 
     public UserDevice getActiveDevice(String enterpriseCode, String deviceIdentifier) {
@@ -96,16 +100,15 @@ public class DeviceRegistrationService {
         return device;
     }
 
-    private String generateNextTerminalId(EnterpriseMaster enterprise) {
-        long nextNumber = userDeviceRepository.count() + 1;
-        return "TERM-" + nextNumber;
+    private String generateNextTerminalId() {
+        return "TERM-" + System.currentTimeMillis();
     }
 
-    private DeviceRegistrationResponse buildResponse(UserDevice device) {
+    private DeviceRegistrationResponse buildResponse(UserDevice device, EnterpriseMaster enterprise) {
         DeviceRegistrationResponse response = new DeviceRegistrationResponse();
         response.setDeviceId(device.getId());
-        response.setEnterpriseCode(device.getEnterprise().getEnterpriseCode());
-        response.setEnterpriseName(device.getEnterprise().getEnterpriseName());
+        response.setEnterpriseCode(enterprise.getEnterpriseCode());
+        response.setEnterpriseName(enterprise.getEnterpriseName());
         response.setRole(device.getRole());
         response.setTerminalId(device.getTerminalId());
         response.setDeviceIdentifier(device.getDeviceIdentifier());

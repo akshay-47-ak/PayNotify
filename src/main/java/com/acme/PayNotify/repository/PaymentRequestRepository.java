@@ -22,11 +22,6 @@ public interface PaymentRequestRepository extends JpaRepository<PaymentRequest, 
 
     List<PaymentRequest> findByUserDeviceAndStatusOrderByCreatedAtDesc(UserDevice userDevice, String status);
 
-    List<PaymentRequest> findByEnterpriseAndTerminalIdAndStatusOrderByCreatedAtDesc(
-            EnterpriseMaster enterprise,
-            String terminalId,
-            String status
-    );
     Optional<PaymentRequest> findTopByEnterpriseAndTerminalIdAndStatusOrderByCreatedAtDesc(
             EnterpriseMaster enterprise,
             String terminalId,

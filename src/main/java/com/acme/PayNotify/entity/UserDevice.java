@@ -18,7 +18,7 @@ public class UserDevice {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "enterprise_id", nullable = false)
     private EnterpriseMaster enterprise;
 
@@ -26,7 +26,7 @@ public class UserDevice {
     private String terminalId;
 
     @Column(name = "role", nullable = false, length = 20)
-    private String role; // OWNER / CASHIER
+    private String role;
 
     @Column(name = "device_identifier", nullable = false, unique = true, length = 200)
     private String deviceIdentifier;

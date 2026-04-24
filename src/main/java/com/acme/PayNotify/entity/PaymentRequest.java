@@ -22,11 +22,11 @@ public class PaymentRequest {
     @Column(name = "payment_id", unique = true, nullable = false, length = 100)
     private String paymentId;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "enterprise_id", nullable = false)
     private EnterpriseMaster enterprise;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "user_device_id", nullable = false)
     private UserDevice userDevice;
 
@@ -52,7 +52,7 @@ public class PaymentRequest {
     private String upiUrl;
 
     @Column(name = "status", nullable = false, length = 20)
-    private String status; // PENDING / SUCCESS / FAILED / EXPIRED
+    private String status;
 
     @Column(name = "utr", length = 100)
     private String utr;

@@ -102,7 +102,7 @@ public class PaymentService {
 
         payment = paymentRequestRepository.save(payment);
 
-        paymentWebSocketService.publishPaymentCreated(payment, "QR generated successfully");
+        paymentWebSocketService.publishQrToTerminal(payment, qrImageBase64, "QR generated successfully");
 
         GenerateQrResponse response = new GenerateQrResponse();
         response.setPaymentId(payment.getPaymentId());
@@ -146,8 +146,6 @@ public class PaymentService {
                         terminalId,
                         "PENDING"
                 )
-                .stream()
-                .findFirst()
                 .orElse(null);
 
         if (payment == null) {
