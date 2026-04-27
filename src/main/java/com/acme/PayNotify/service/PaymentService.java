@@ -63,6 +63,14 @@ public class PaymentService {
             throw new RuntimeException("Merchant name is required");
         }
 
+        String sourceApp = request.getSourceApp();
+
+        if (sourceApp == null || sourceApp.trim().isEmpty()) {
+            sourceApp = "UNKNOWN";
+        }
+        sourceApp = sourceApp.trim().toUpperCase();
+
+
         EnterpriseMaster enterprise = enterpriseService.getValidatedEnterprise(request.getEnterpriseCode());
         UserDevice terminalDevice = deviceRegistrationService.getActiveTerminal(
                 request.getEnterpriseCode(),
@@ -99,6 +107,7 @@ public class PaymentService {
         payment.setStatus("PENDING");
         payment.setCreatedAt(now);
         payment.setUpdatedAt(now);
+        payment.setSourceApp(sourceApp);
 
         payment = paymentRequestRepository.save(payment);
 
@@ -111,6 +120,7 @@ public class PaymentService {
         response.setUpiUrl(payment.getUpiUrl());
         response.setQrImageBase64(qrImageBase64);
         response.setStatus(payment.getStatus());
+        response.setSourceApp(payment.getSourceApp());
 
         return response;
     }

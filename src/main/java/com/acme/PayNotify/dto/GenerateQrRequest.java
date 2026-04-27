@@ -16,4 +16,5 @@ public class GenerateQrRequest {
     private String merchantName;
     private String upiId;
     private BigDecimal amount;
+    private String sourceApp;
 }

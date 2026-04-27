@@ -34,7 +34,7 @@ public class PaymentWebSocketService {
         event.setStatus(payment.getStatus());
         event.setMessage(message);
         event.setTimestamp(System.currentTimeMillis());
-
+        event.setSourceApp(payment.getSourceApp());
         messagingTemplate.convertAndSend("/topic/terminal/" + payment.getTerminalId(), event);
     }
 
@@ -60,7 +60,9 @@ public class PaymentWebSocketService {
         event.setPayerName(payment.getPayerName());
         event.setUtr(payment.getUtr());
         event.setMessage(message);
+        event.setSourceApp(payment.getSourceApp());
         event.setTimestamp(System.currentTimeMillis());
+
         return event;
     }
 

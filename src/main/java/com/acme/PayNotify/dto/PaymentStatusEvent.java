@@ -21,4 +21,5 @@ public class PaymentStatusEvent {
     private String utr;
     private String message;
     private Long timestamp;
+    private String sourceApp;
 }

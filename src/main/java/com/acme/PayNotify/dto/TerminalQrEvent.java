@@ -23,4 +23,5 @@ public class TerminalQrEvent {
     private String status;
     private String message;
     private Long timestamp;
+    private String sourceApp;
 }

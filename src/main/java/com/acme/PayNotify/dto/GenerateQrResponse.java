@@ -15,4 +15,5 @@ public class GenerateQrResponse {
     private String upiUrl;
     private String qrImageBase64;
     private String status;
+    private String sourceApp;
 }

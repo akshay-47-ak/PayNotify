@@ -42,6 +42,9 @@ public class PaymentRequest {
     @Column(name = "merchant_name", nullable = false, length = 200)
     private String merchantName;
 
+    @Column(name = "source_app", length = 50)
+    private String sourceApp;
+
     @Column(name = "amount", nullable = false, precision = 18, scale = 2)
     private BigDecimal amount;
 
@@ -65,4 +68,5 @@ public class PaymentRequest {
 
     @Column(name = "updated_at", nullable = false)
     private Timestamp updatedAt;
+
 }
