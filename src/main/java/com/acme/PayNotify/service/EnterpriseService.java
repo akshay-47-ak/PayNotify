@@ -42,6 +42,8 @@ public class EnterpriseService {
         enterprise.setIsActive(true);
         enterprise.setLiveFrom(request.getLiveFrom());
         enterprise.setCreatedAt(new Timestamp(System.currentTimeMillis()));
+        enterprise.setCompCode(1);
+        enterprise.setTenantCode(1);
 
         enterprise = enterpriseMasterRepository.save(enterprise);
 

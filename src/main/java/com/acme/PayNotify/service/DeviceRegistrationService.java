@@ -52,6 +52,8 @@ public class DeviceRegistrationService {
             existingDevice.setRole(role);
             existingDevice.setDeviceName(request.getDeviceName());
             existingDevice.setIsActive(true);
+            existingDevice.setCompCode(1);
+            existingDevice.setTenantCode(1);
 
             existingDevice = userDeviceRepository.save(existingDevice);
 
@@ -66,6 +68,8 @@ public class DeviceRegistrationService {
         device.setTerminalId(generateNextTerminalId());
         device.setIsActive(true);
         device.setRegisteredAt(new Timestamp(System.currentTimeMillis()));
+        device.setCompCode(1);
+        device.setTenantCode(1);
 
         device = userDeviceRepository.save(device);
 

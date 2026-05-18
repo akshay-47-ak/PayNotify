@@ -108,6 +108,9 @@ public class PaymentService {
         payment.setCreatedAt(now);
         payment.setUpdatedAt(now);
         payment.setSourceApp(sourceApp);
+        payment.setDocumentOwnCode(request.getDocumentOwnCode());
+        payment.setCompCode(1);
+        payment.setTenantCode(1);
 
         payment = paymentRequestRepository.save(payment);
 
@@ -121,6 +124,7 @@ public class PaymentService {
         response.setQrImageBase64(qrImageBase64);
         response.setStatus(payment.getStatus());
         response.setSourceApp(payment.getSourceApp());
+        response.setDocumentOwnCode(payment.getDocumentOwnCode());
 
         return response;
     }
@@ -201,8 +205,6 @@ public class PaymentService {
 
         String finalTransactionRef = firstNonBlank(requestTransactionRef, parsedTransactionRef);
 
-        saveNotificationLog(device, request, fullText, parsed, finalTransactionRef);
-
         PaymentNotificationResponse response = new PaymentNotificationResponse();
         response.setTransactionRef(finalTransactionRef);
         response.setReceivedAmount(amountStr);
@@ -210,6 +212,16 @@ public class PaymentService {
         response.setPayerName(payerName);
 
         if (finalTransactionRef == null || finalTransactionRef.trim().isEmpty()) {
+
+            saveNotificationLog(
+                    device,
+                    request,
+                    fullText,
+                    parsed,
+                    finalTransactionRef,
+                    null
+            );
+
             response.setMatched(false);
             response.setStatus("TRANSACTION_REF_NOT_FOUND");
             response.setMessage("Transaction reference not found in notification");
@@ -219,6 +231,17 @@ public class PaymentService {
         PaymentRequest payment = paymentRequestRepository
                 .findTopByTransactionRefAndStatusOrderByCreatedAtDesc(finalTransactionRef.trim(), "PENDING")
                 .orElse(null);
+
+        Long documentOwnCode = payment != null ? payment.getDocumentOwnCode() : null;
+
+        saveNotificationLog(
+                device,
+                request,
+                fullText,
+                parsed,
+                finalTransactionRef,
+                documentOwnCode
+        );
 
         if (payment == null) {
             response.setMatched(false);
@@ -266,7 +289,8 @@ public class PaymentService {
             PaymentNotificationRequest request,
             String fullText,
             Map<String, String> parsed,
-            String finalTransactionRef) {
+            String finalTransactionRef,
+            Long documentOwnCode) {
 
         PaymentNotificationLog log = new PaymentNotificationLog();
         log.setEnterprise(device.getEnterprise());
@@ -279,6 +303,9 @@ public class PaymentService {
         log.setParsedAmount(parsed.get("amount"));
         log.setUtr(parsed.get("utr"));
         log.setPayerName(parsed.get("payerName"));
+        log.setDocumentOwnCode(documentOwnCode);
+        log.setCompCode(1);
+        log.setTenantCode(1);
         log.setCreatedAt(new Timestamp(System.currentTimeMillis()));
 
         paymentNotificationLogRepository.save(log);
