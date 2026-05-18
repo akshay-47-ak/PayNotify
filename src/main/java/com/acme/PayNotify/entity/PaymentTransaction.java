@@ -13,7 +13,7 @@ import java.sql.Timestamp;
 @AllArgsConstructor
 @NoArgsConstructor
 @Data
-public class PaymentTransaction {
+public class PaymentTransaction extends BaseEntity{
 
 
     @Id
