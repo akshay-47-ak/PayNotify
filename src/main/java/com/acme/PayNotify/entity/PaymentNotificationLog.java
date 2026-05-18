@@ -52,4 +52,7 @@ public class PaymentNotificationLog extends BaseEntity{
 
     @Column(name = "created_at", nullable = false)
     private Timestamp createdAt;
+
+    @Column(name = "document_own_code")
+    private Long documentOwnCode;
 }

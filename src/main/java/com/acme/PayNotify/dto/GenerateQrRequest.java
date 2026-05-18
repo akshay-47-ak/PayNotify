@@ -17,4 +17,5 @@ public class GenerateQrRequest {
     private String upiId;
     private BigDecimal amount;
     private String sourceApp;
+    private Long documentOwnCode;
 }

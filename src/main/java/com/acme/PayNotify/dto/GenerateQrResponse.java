@@ -16,4 +16,5 @@ public class GenerateQrResponse {
     private String qrImageBase64;
     private String status;
     private String sourceApp;
+    private Long documentOwnCode;
 }

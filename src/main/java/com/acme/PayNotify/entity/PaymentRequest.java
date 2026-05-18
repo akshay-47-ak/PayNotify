@@ -69,4 +69,7 @@ public class PaymentRequest extends BaseEntity{
     @Column(name = "updated_at", nullable = false)
     private Timestamp updatedAt;
 
+    @Column(name = "document_own_code")
+    private Long documentOwnCode;
+
 }
