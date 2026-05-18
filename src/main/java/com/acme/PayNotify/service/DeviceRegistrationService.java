@@ -1,5 +1,6 @@
 package com.acme.PayNotify.service;
 
+import com.acme.PayNotify.dto.DeviceLoginRequest;
 import com.acme.PayNotify.dto.DeviceRegistrationRequest;
 import com.acme.PayNotify.dto.DeviceRegistrationResponse;
 import com.acme.PayNotify.entity.EnterpriseMaster;
@@ -42,28 +43,38 @@ public class DeviceRegistrationService {
             throw new RuntimeException("Invalid role. Allowed values are OWNER or CASHIER");
         }
 
-        EnterpriseMaster enterprise = enterpriseService.getValidatedEnterprise(request.getEnterpriseCode());
+        EnterpriseMaster enterprise =
+                enterpriseService.getValidatedEnterprise(request.getEnterpriseCode());
+
+        String deviceIdentifier = request.getDeviceIdentifier().trim();
 
         UserDevice existingDevice = userDeviceRepository
-                .findByEnterpriseAndDeviceIdentifier(enterprise, request.getDeviceIdentifier().trim())
+                .findByEnterpriseAndDeviceIdentifier(enterprise, deviceIdentifier)
                 .orElse(null);
 
         if (existingDevice != null) {
-            existingDevice.setRole(role);
-            existingDevice.setDeviceName(request.getDeviceName());
-            existingDevice.setIsActive(true);
-            existingDevice.setCompCode(1);
-            existingDevice.setTenantCode(1);
 
-            existingDevice = userDeviceRepository.save(existingDevice);
+            if (existingDevice.getIsActive() == null || !existingDevice.getIsActive()) {
+                throw new RuntimeException("Device is already registered but inactive. Please contact admin.");
+            }
 
-            return buildResponse(existingDevice, enterprise);
+            if (existingDevice.getRole() != null && !existingDevice.getRole().equalsIgnoreCase(role)) {
+                throw new RuntimeException(
+                        "This device is already registered as " + existingDevice.getRole()
+                                + ". Same device cannot be registered with another role."
+                );
+            }
+
+            DeviceRegistrationResponse response = buildResponse(existingDevice, enterprise);
+            response.setStatus("ALREADY_REGISTERED");
+
+            return response;
         }
 
         UserDevice device = new UserDevice();
         device.setEnterprise(enterprise);
         device.setRole(role);
-        device.setDeviceIdentifier(request.getDeviceIdentifier().trim());
+        device.setDeviceIdentifier(deviceIdentifier);
         device.setDeviceName(request.getDeviceName());
         device.setTerminalId(generateNextTerminalId());
         device.setIsActive(true);
@@ -73,7 +84,44 @@ public class DeviceRegistrationService {
 
         device = userDeviceRepository.save(device);
 
-        return buildResponse(device, enterprise);
+        DeviceRegistrationResponse response = buildResponse(device, enterprise);
+        response.setStatus("REGISTERED");
+
+        return response;
+    }
+
+    public DeviceRegistrationResponse loginDevice(DeviceLoginRequest request) {
+
+        if (request == null) {
+            throw new RuntimeException("Device login request is required");
+        }
+
+        if (request.getEnterpriseCode() == null || request.getEnterpriseCode().trim().isEmpty()) {
+            throw new RuntimeException("Enterprise code is required");
+        }
+
+        if (request.getDeviceIdentifier() == null || request.getDeviceIdentifier().trim().isEmpty()) {
+            throw new RuntimeException("Device identifier is required");
+        }
+
+        EnterpriseMaster enterprise =
+                enterpriseService.getValidatedEnterprise(request.getEnterpriseCode());
+
+        UserDevice device = userDeviceRepository
+                .findByEnterpriseAndDeviceIdentifier(
+                        enterprise,
+                        request.getDeviceIdentifier().trim()
+                )
+                .orElseThrow(() -> new RuntimeException("Device is not registered. Please register first."));
+
+        if (device.getIsActive() == null || !device.getIsActive()) {
+            throw new RuntimeException("Device is inactive. Please contact admin.");
+        }
+
+        DeviceRegistrationResponse response = buildResponse(device, enterprise);
+        response.setStatus("LOGIN_SUCCESS");
+
+        return response;
     }
 
     public UserDevice getActiveDevice(String enterpriseCode, String deviceIdentifier) {
@@ -117,7 +165,7 @@ public class DeviceRegistrationService {
         response.setTerminalId(device.getTerminalId());
         response.setDeviceIdentifier(device.getDeviceIdentifier());
         response.setDeviceName(device.getDeviceName());
-        response.setStatus("REGISTERED");
+
         return response;
     }
 }

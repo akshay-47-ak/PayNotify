@@ -1,6 +1,7 @@
 package com.acme.PayNotify.controller;
 
 import com.acme.PayNotify.dto.ApiResponse;
+import com.acme.PayNotify.dto.DeviceLoginRequest;
 import com.acme.PayNotify.dto.DeviceRegistrationRequest;
 import com.acme.PayNotify.dto.DeviceRegistrationResponse;
 import com.acme.PayNotify.service.DeviceRegistrationService;
@@ -21,10 +22,30 @@ public class DeviceController {
     public ResponseEntity<ApiResponse<DeviceRegistrationResponse>> registerDevice(
             @RequestBody DeviceRegistrationRequest request) {
         try {
-            DeviceRegistrationResponse response = deviceRegistrationService.registerDevice(request);
+            DeviceRegistrationResponse response =
+                    deviceRegistrationService.registerDevice(request);
 
             return ResponseEntity.ok(
-                    new ApiResponse<>(true, "Device registered successfully", response)
+                    new ApiResponse<>(true, "Device registration completed", response)
+            );
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest()
+                    .body(new ApiResponse<>(false, e.getMessage(), null));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ApiResponse<>(false, e.getMessage(), null));
+        }
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<ApiResponse<DeviceRegistrationResponse>> loginDevice(
+            @RequestBody DeviceLoginRequest request) {
+        try {
+            DeviceRegistrationResponse response =
+                    deviceRegistrationService.loginDevice(request);
+
+            return ResponseEntity.ok(
+                    new ApiResponse<>(true, "Device login successful", response)
             );
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest()

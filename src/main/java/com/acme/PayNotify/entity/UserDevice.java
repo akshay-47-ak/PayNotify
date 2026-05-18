@@ -8,11 +8,23 @@ import lombok.NoArgsConstructor;
 import java.sql.Timestamp;
 
 @Entity
-@Table(name = "user_device")
+@Table(
+        name = "user_device",
+        uniqueConstraints = {
+                @UniqueConstraint(
+                        name = "uk_user_device_enterprise_device",
+                        columnNames = {"enterprise_id", "device_identifier"}
+                ),
+                @UniqueConstraint(
+                        name = "uk_user_device_terminal_id",
+                        columnNames = {"terminal_id"}
+                )
+        }
+)
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class UserDevice extends BaseEntity{
+public class UserDevice extends BaseEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -22,13 +34,13 @@ public class UserDevice extends BaseEntity{
     @JoinColumn(name = "enterprise_id", nullable = false)
     private EnterpriseMaster enterprise;
 
-    @Column(name = "terminal_id", nullable = false, unique = true, length = 50)
+    @Column(name = "terminal_id", nullable = false, length = 50)
     private String terminalId;
 
     @Column(name = "role", nullable = false, length = 20)
     private String role;
 
-    @Column(name = "device_identifier", nullable = false, unique = true, length = 200)
+    @Column(name = "device_identifier", nullable = false, length = 200)
     private String deviceIdentifier;
 
     @Column(name = "device_name", length = 200)
