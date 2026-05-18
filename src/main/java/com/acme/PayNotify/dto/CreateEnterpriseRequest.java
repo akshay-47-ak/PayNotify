@@ -11,7 +11,6 @@ import java.sql.Timestamp;
 @AllArgsConstructor
 public class CreateEnterpriseRequest {
 
-    private String enterpriseCode;
     private String enterpriseName;
     private Timestamp liveFrom;
 }

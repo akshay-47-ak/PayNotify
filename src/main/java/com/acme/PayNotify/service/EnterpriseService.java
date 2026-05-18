@@ -8,10 +8,13 @@ import com.acme.PayNotify.repository.EnterpriseMasterRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.security.SecureRandom;
 import java.sql.Timestamp;
 
 @Service
 public class EnterpriseService {
+
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     @Autowired
     private EnterpriseMasterRepository enterpriseMasterRepository;
@@ -21,20 +24,11 @@ public class EnterpriseService {
             throw new RuntimeException("Create enterprise request is required");
         }
 
-        if (request.getEnterpriseCode() == null || request.getEnterpriseCode().trim().isEmpty()) {
-            throw new RuntimeException("Enterprise code is required");
-        }
-
         if (request.getEnterpriseName() == null || request.getEnterpriseName().trim().isEmpty()) {
             throw new RuntimeException("Enterprise name is required");
         }
 
-        String enterpriseCode = request.getEnterpriseCode().trim().toUpperCase();
-
-        boolean exists = enterpriseMasterRepository.existsByEnterpriseCode(enterpriseCode);
-        if (exists) {
-            throw new RuntimeException("Enterprise code already exists");
-        }
+        String enterpriseCode = generateUniqueEnterpriseCode();
 
         EnterpriseMaster enterprise = new EnterpriseMaster();
         enterprise.setEnterpriseCode(enterpriseCode);
@@ -56,6 +50,42 @@ public class EnterpriseService {
         response.setCreatedAt(enterprise.getCreatedAt());
 
         return response;
+    }
+
+    private String generateUniqueEnterpriseCode() {
+        String code;
+        int attempt = 0;
+
+        do {
+            code = generateEnterpriseCode();
+            attempt++;
+
+            if (attempt > 20) {
+                throw new RuntimeException("Unable to generate unique enterprise code. Please try again.");
+            }
+
+        } while (enterpriseMasterRepository.existsByEnterpriseCode(code));
+
+        return code;
+    }
+
+    private String generateEnterpriseCode() {
+        String letters = randomLetters(2);
+        int number = 1000 + RANDOM.nextInt(9000);
+
+        return letters + number;
+    }
+
+    private String randomLetters(int count) {
+        String alphabets = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        StringBuilder builder = new StringBuilder();
+
+        for (int i = 0; i < count; i++) {
+            int index = RANDOM.nextInt(alphabets.length());
+            builder.append(alphabets.charAt(index));
+        }
+
+        return builder.toString();
     }
 
     public EnterpriseValidationResponse validateEnterprise(String enterpriseCode) {
