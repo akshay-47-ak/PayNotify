@@ -3,6 +3,7 @@ package com.acme.PayNotify.service;
 import com.acme.PayNotify.dto.DeviceLoginRequest;
 import com.acme.PayNotify.dto.DeviceRegistrationRequest;
 import com.acme.PayNotify.dto.DeviceRegistrationResponse;
+import com.acme.PayNotify.dto.TerminalResponse;
 import com.acme.PayNotify.entity.EnterpriseMaster;
 import com.acme.PayNotify.entity.UserDevice;
 import com.acme.PayNotify.repository.UserDeviceRepository;
@@ -10,6 +11,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.sql.Timestamp;
+import java.util.ArrayList;
+import java.util.List;
 
 @Service
 public class DeviceRegistrationService {
@@ -122,6 +125,36 @@ public class DeviceRegistrationService {
         response.setStatus("LOGIN_SUCCESS");
 
         return response;
+    }
+
+    public List<TerminalResponse> getActiveTerminals(String enterpriseCode) {
+
+        if (enterpriseCode == null || enterpriseCode.trim().isEmpty()) {
+            throw new RuntimeException("Enterprise code is required");
+        }
+
+        EnterpriseMaster enterprise =
+                enterpriseService.getValidatedEnterprise(enterpriseCode);
+
+        List<UserDevice> devices =
+                userDeviceRepository.findByEnterpriseAndIsActiveTrue(enterprise);
+
+        List<TerminalResponse> responseList = new ArrayList<>();
+
+        for (UserDevice device : devices) {
+            TerminalResponse response = new TerminalResponse();
+            response.setDeviceId(device.getId());
+            response.setEnterpriseCode(enterprise.getEnterpriseCode());
+            response.setEnterpriseName(enterprise.getEnterpriseName());
+            response.setTerminalId(device.getTerminalId());
+            response.setRole(device.getRole());
+            response.setDeviceIdentifier(device.getDeviceIdentifier());
+            response.setDeviceName(device.getDeviceName());
+
+            responseList.add(response);
+        }
+
+        return responseList;
     }
 
     public UserDevice getActiveDevice(String enterpriseCode, String deviceIdentifier) {
