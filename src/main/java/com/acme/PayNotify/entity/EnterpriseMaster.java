@@ -24,6 +24,12 @@ public class EnterpriseMaster extends BaseEntity{
     @Column(name = "enterprise_name", nullable = false, length = 200)
     private String enterpriseName;
 
+    @Column(name = "department", length = 50)
+    private String department;
+
+    @Column(name = "department_code")
+    private Integer departmentCode;
+
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
 

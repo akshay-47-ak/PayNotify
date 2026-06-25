@@ -4,16 +4,11 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.sql.Timestamp;
-
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class CreateEnterpriseRequest {
+public class DepartmentResponse {
 
-    private String enterpriseCode;
-    private String enterpriseName;
     private String department;
     private Integer departmentCode;
-    private Timestamp liveFrom;
 }

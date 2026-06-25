@@ -14,6 +14,8 @@ public class CreateEnterpriseResponse {
     private Long id;
     private String enterpriseCode;
     private String enterpriseName;
+    private String department;
+    private Integer departmentCode;
     private Boolean isActive;
     private Timestamp liveFrom;
     private Timestamp createdAt;

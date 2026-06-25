@@ -12,6 +12,8 @@ public class EnterpriseValidationResponse {
     private boolean valid;
     private String enterpriseCode;
     private String enterpriseName;
+    private String department;
+    private Integer departmentCode;
     private String status;
     private String message;
 }

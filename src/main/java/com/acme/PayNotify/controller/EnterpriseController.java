@@ -3,6 +3,7 @@ package com.acme.PayNotify.controller;
 import com.acme.PayNotify.dto.ApiResponse;
 import com.acme.PayNotify.dto.CreateEnterpriseRequest;
 import com.acme.PayNotify.dto.CreateEnterpriseResponse;
+import com.acme.PayNotify.dto.DepartmentResponse;
 import com.acme.PayNotify.dto.EnterpriseValidationRequest;
 import com.acme.PayNotify.dto.EnterpriseValidationResponse;
 import com.acme.PayNotify.service.EnterpriseService;
@@ -11,6 +12,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/enterprise")
 @CrossOrigin(origins = "*")
@@ -18,6 +21,20 @@ public class EnterpriseController {
 
     @Autowired
     private EnterpriseService enterpriseService;
+
+    @GetMapping("/departments")
+    public ResponseEntity<ApiResponse<List<DepartmentResponse>>> getDepartments() {
+        try {
+            List<DepartmentResponse> response = enterpriseService.getDepartments();
+
+            return ResponseEntity.ok(
+                    new ApiResponse<>(true, "Departments fetched successfully", response)
+            );
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ApiResponse<>(false, e.getMessage(), null));
+        }
+    }
 
     @PostMapping("/create")
     public ResponseEntity<ApiResponse<CreateEnterpriseResponse>> createEnterprise(

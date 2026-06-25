@@ -2,37 +2,59 @@ package com.acme.PayNotify.service;
 
 import com.acme.PayNotify.dto.CreateEnterpriseRequest;
 import com.acme.PayNotify.dto.CreateEnterpriseResponse;
+import com.acme.PayNotify.dto.DepartmentResponse;
 import com.acme.PayNotify.dto.EnterpriseValidationResponse;
 import com.acme.PayNotify.entity.EnterpriseMaster;
 import com.acme.PayNotify.repository.EnterpriseMasterRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.security.SecureRandom;
 import java.sql.Timestamp;
+import java.util.List;
 
 @Service
 public class EnterpriseService {
 
-    private static final SecureRandom RANDOM = new SecureRandom();
+    private static final String DEPARTMENT_PADM = "PADM";
+    private static final String DEPARTMENT_INFINITY = "INFINITY";
+    private static final String DEPARTMENT_INSIGHT = "INSIGHT";
 
     @Autowired
     private EnterpriseMasterRepository enterpriseMasterRepository;
+
+    public List<DepartmentResponse> getDepartments() {
+        return List.of(
+                new DepartmentResponse(DEPARTMENT_PADM, 1),
+                new DepartmentResponse(DEPARTMENT_INFINITY, 2),
+                new DepartmentResponse(DEPARTMENT_INSIGHT, 3)
+        );
+    }
 
     public CreateEnterpriseResponse createEnterprise(CreateEnterpriseRequest request) {
         if (request == null) {
             throw new RuntimeException("Create enterprise request is required");
         }
 
+        if (request.getEnterpriseCode() == null || request.getEnterpriseCode().trim().isEmpty()) {
+            throw new RuntimeException("Enterprise code is required");
+        }
+
         if (request.getEnterpriseName() == null || request.getEnterpriseName().trim().isEmpty()) {
             throw new RuntimeException("Enterprise name is required");
         }
 
-        String enterpriseCode = generateUniqueEnterpriseCode();
+        String enterpriseCode = request.getEnterpriseCode().trim().toUpperCase();
+        if (enterpriseMasterRepository.existsByEnterpriseCode(enterpriseCode)) {
+            throw new RuntimeException("Enterprise code already exists");
+        }
+
+        DepartmentInfo departmentInfo = resolveDepartment(request.getDepartment(), request.getDepartmentCode());
 
         EnterpriseMaster enterprise = new EnterpriseMaster();
         enterprise.setEnterpriseCode(enterpriseCode);
         enterprise.setEnterpriseName(request.getEnterpriseName().trim());
+        enterprise.setDepartment(departmentInfo.department());
+        enterprise.setDepartmentCode(departmentInfo.departmentCode());
         enterprise.setIsActive(true);
         enterprise.setLiveFrom(request.getLiveFrom());
         enterprise.setCreatedAt(new Timestamp(System.currentTimeMillis()));
@@ -45,6 +67,8 @@ public class EnterpriseService {
         response.setId(enterprise.getId());
         response.setEnterpriseCode(enterprise.getEnterpriseCode());
         response.setEnterpriseName(enterprise.getEnterpriseName());
+        response.setDepartment(enterprise.getDepartment());
+        response.setDepartmentCode(enterprise.getDepartmentCode());
         response.setIsActive(enterprise.getIsActive());
         response.setLiveFrom(enterprise.getLiveFrom());
         response.setCreatedAt(enterprise.getCreatedAt());
@@ -52,40 +76,53 @@ public class EnterpriseService {
         return response;
     }
 
-    private String generateUniqueEnterpriseCode() {
-        String code;
-        int attempt = 0;
-
-        do {
-            code = generateEnterpriseCode();
-            attempt++;
-
-            if (attempt > 20) {
-                throw new RuntimeException("Unable to generate unique enterprise code. Please try again.");
-            }
-
-        } while (enterpriseMasterRepository.existsByEnterpriseCode(code));
-
-        return code;
-    }
-
-    private String generateEnterpriseCode() {
-        String letters = randomLetters(2);
-        int number = 1000 + RANDOM.nextInt(9000);
-
-        return letters + number;
-    }
-
-    private String randomLetters(int count) {
-        String alphabets = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-        StringBuilder builder = new StringBuilder();
-
-        for (int i = 0; i < count; i++) {
-            int index = RANDOM.nextInt(alphabets.length());
-            builder.append(alphabets.charAt(index));
+    private DepartmentInfo resolveDepartment(String department, Integer departmentCode) {
+        if ((department == null || department.trim().isEmpty()) && departmentCode == null) {
+            throw new RuntimeException("Department or department code is required");
         }
 
-        return builder.toString();
+        DepartmentInfo resolvedFromDepartment = null;
+        DepartmentInfo resolvedFromCode = null;
+
+        if (department != null && !department.trim().isEmpty()) {
+            resolvedFromDepartment = resolveDepartmentByName(department.trim().toUpperCase());
+        }
+
+        if (departmentCode != null) {
+            resolvedFromCode = resolveDepartmentByCode(departmentCode);
+        }
+
+        if (resolvedFromDepartment != null && resolvedFromCode != null
+                && !resolvedFromDepartment.equals(resolvedFromCode)) {
+            throw new RuntimeException("Department and department code do not match");
+        }
+
+        return resolvedFromDepartment != null ? resolvedFromDepartment : resolvedFromCode;
+    }
+
+    private DepartmentInfo resolveDepartmentByName(String department) {
+        return switch (department) {
+            case DEPARTMENT_PADM -> new DepartmentInfo(DEPARTMENT_PADM, 1);
+            case DEPARTMENT_INFINITY -> new DepartmentInfo(DEPARTMENT_INFINITY, 2);
+            case DEPARTMENT_INSIGHT -> new DepartmentInfo(DEPARTMENT_INSIGHT, 3);
+            default -> throw new RuntimeException("Invalid department. Allowed values are PADM, INFINITY or INSIGHT");
+        };
+    }
+
+    private DepartmentInfo resolveDepartmentByCode(Integer departmentCode) {
+        return switch (departmentCode) {
+            case 1 -> new DepartmentInfo(DEPARTMENT_PADM, 1);
+            case 2 -> new DepartmentInfo(DEPARTMENT_INFINITY, 2);
+            case 3 -> new DepartmentInfo(DEPARTMENT_INSIGHT, 3);
+            default -> throw new RuntimeException("Invalid department code. Allowed values are 1, 2 or 3");
+        };
+    }
+
+    private void populateEnterpriseDetails(EnterpriseValidationResponse response, EnterpriseMaster enterprise) {
+        response.setEnterpriseCode(enterprise.getEnterpriseCode());
+        response.setEnterpriseName(enterprise.getEnterpriseName());
+        response.setDepartment(enterprise.getDepartment());
+        response.setDepartmentCode(enterprise.getDepartmentCode());
     }
 
     public EnterpriseValidationResponse validateEnterprise(String enterpriseCode) {
@@ -112,8 +149,7 @@ public class EnterpriseService {
 
         if (enterprise.getIsActive() == null || !enterprise.getIsActive()) {
             response.setValid(false);
-            response.setEnterpriseCode(enterprise.getEnterpriseCode());
-            response.setEnterpriseName(enterprise.getEnterpriseName());
+            populateEnterpriseDetails(response, enterprise);
             response.setStatus("INACTIVE");
             response.setMessage("Enterprise is inactive");
             return response;
@@ -122,16 +158,14 @@ public class EnterpriseService {
         Timestamp now = new Timestamp(System.currentTimeMillis());
         if (enterprise.getLiveFrom() != null && enterprise.getLiveFrom().after(now)) {
             response.setValid(false);
-            response.setEnterpriseCode(enterprise.getEnterpriseCode());
-            response.setEnterpriseName(enterprise.getEnterpriseName());
+            populateEnterpriseDetails(response, enterprise);
             response.setStatus("NOT_LIVE");
             response.setMessage("Enterprise is not live yet");
             return response;
         }
 
         response.setValid(true);
-        response.setEnterpriseCode(enterprise.getEnterpriseCode());
-        response.setEnterpriseName(enterprise.getEnterpriseName());
+        populateEnterpriseDetails(response, enterprise);
         response.setStatus("VALID");
         response.setMessage("Enterprise validated successfully");
 
@@ -157,5 +191,8 @@ public class EnterpriseService {
         }
 
         return enterprise;
+    }
+
+    private record DepartmentInfo(String department, Integer departmentCode) {
     }
 }
