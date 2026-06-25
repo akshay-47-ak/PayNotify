@@ -73,9 +73,7 @@ public class DeviceRegistrationService {
         String deviceIdentifier = request.getDeviceIdentifier().trim();
         String deviceName = request.getDeviceName().trim();
 
-        UserDevice existingDevice = userDeviceRepository
-                .findByEnterpriseAndDeviceIdentifier(enterprise, deviceIdentifier)
-                .orElse(null);
+        UserDevice existingDevice = findExistingDeviceForRegistration(enterprise, deviceIdentifier);
 
         validateDeviceNameIsAvailable(deviceName, existingDevice);
 
@@ -231,6 +229,28 @@ public class DeviceRegistrationService {
 
     private String generateNextTerminalId() {
         return "TERM-" + System.currentTimeMillis();
+    }
+
+    private UserDevice findExistingDeviceForRegistration(
+            EnterpriseMaster enterprise,
+            String deviceIdentifier
+    ) {
+        List<UserDevice> devices = userDeviceRepository.findByDeviceIdentifier(deviceIdentifier);
+
+        if (devices.isEmpty()) {
+            return null;
+        }
+
+        for (UserDevice device : devices) {
+            EnterpriseMaster registeredEnterprise = device.getEnterprise();
+            if (registeredEnterprise != null
+                    && registeredEnterprise.getId() != null
+                    && registeredEnterprise.getId().equals(enterprise.getId())) {
+                return device;
+            }
+        }
+
+        throw new RuntimeException("Device is already registered with another enterprise");
     }
 
     private void validateDeviceNameIsAvailable(String deviceName, UserDevice existingDevice) {
