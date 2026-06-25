@@ -13,6 +13,8 @@ public interface UserDeviceRepository extends JpaRepository<UserDevice, Long> {
 
     Optional<UserDevice> findByDeviceIdentifier(String deviceIdentifier);
 
+    List<UserDevice> findByDeviceName(String deviceName);
+
     Optional<UserDevice> findByEnterpriseAndTerminalId(EnterpriseMaster enterprise, String terminalId);
 
     Optional<UserDevice> findByEnterpriseAndDeviceIdentifier(EnterpriseMaster enterprise, String deviceIdentifier);
@@ -24,6 +26,8 @@ public interface UserDeviceRepository extends JpaRepository<UserDevice, Long> {
     boolean existsByTerminalId(String terminalId);
 
     boolean existsByDeviceIdentifier(String deviceIdentifier);
+
+    boolean existsByDeviceName(String deviceName);
 
     boolean existsByEnterpriseAndDeviceIdentifier(EnterpriseMaster enterprise, String deviceIdentifier);
 }

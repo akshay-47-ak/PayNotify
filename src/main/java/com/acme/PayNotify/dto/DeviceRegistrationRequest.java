@@ -13,4 +13,5 @@ public class DeviceRegistrationRequest {
     private String role; // OWNER / CASHIER
     private String deviceIdentifier;
     private String deviceName;
+    private String password;
 }

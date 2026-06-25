@@ -5,6 +5,6 @@ import lombok.Data;
 @Data
 public class DeviceLoginRequest {
 
-    private String enterpriseCode;
-    private String deviceIdentifier;
+    private String deviceName;
+    private String password;
 }

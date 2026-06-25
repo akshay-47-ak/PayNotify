@@ -46,6 +46,9 @@ public class UserDevice extends BaseEntity {
     @Column(name = "device_name", length = 200)
     private String deviceName;
 
+    @Column(name = "password_hash", length = 255)
+    private String passwordHash;
+
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
 
