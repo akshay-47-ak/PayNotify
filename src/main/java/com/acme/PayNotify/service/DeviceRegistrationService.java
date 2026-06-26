@@ -71,15 +71,10 @@ public class DeviceRegistrationService {
         EnterpriseMaster enterprise =
                 enterpriseService.getValidatedEnterprise(request.getEnterpriseCode());
 
-        String deviceIdentifier = request.getDeviceIdentifier().trim();
-        String physicalDeviceKey = extractPhysicalDeviceKey(deviceIdentifier);
+        String deviceIdentifier = normalizeDeviceIdentifier(request.getDeviceIdentifier());
         String deviceName = request.getDeviceName().trim();
 
-        UserDevice existingDevice = findExistingDeviceForRegistration(
-                enterprise,
-                deviceIdentifier,
-                physicalDeviceKey
-        );
+        UserDevice existingDevice = findExistingDeviceForRegistration(enterprise, deviceIdentifier);
 
         validateDeviceNameIsAvailable(deviceName, existingDevice);
 
@@ -104,10 +99,7 @@ public class DeviceRegistrationService {
                 existingDevice.setPasswordHash(hashPassword(request.getPassword()));
             }
 
-            if (existingDevice.getPhysicalDeviceKey() == null
-                    || existingDevice.getPhysicalDeviceKey().trim().isEmpty()) {
-                existingDevice.setPhysicalDeviceKey(physicalDeviceKey);
-            }
+            existingDevice.setDeviceIdentifier(deviceIdentifier);
 
             existingDevice = saveDevice(existingDevice);
 
@@ -121,7 +113,6 @@ public class DeviceRegistrationService {
         device.setEnterprise(enterprise);
         device.setRole(role);
         device.setDeviceIdentifier(deviceIdentifier);
-        device.setPhysicalDeviceKey(physicalDeviceKey);
         device.setDeviceName(deviceName);
         device.setPasswordHash(hashPassword(request.getPassword()));
         device.setTerminalId(generateNextTerminalId());
@@ -213,10 +204,9 @@ public class DeviceRegistrationService {
 
     public UserDevice getActiveDevice(String enterpriseCode, String deviceIdentifier) {
         EnterpriseMaster enterprise = enterpriseService.getValidatedEnterprise(enterpriseCode);
+        String normalizedDeviceIdentifier = normalizeDeviceIdentifier(deviceIdentifier);
 
-        UserDevice device = userDeviceRepository
-                .findByEnterpriseAndDeviceIdentifier(enterprise, deviceIdentifier)
-                .orElseThrow(() -> new RuntimeException("Device not registered for this enterprise"));
+        UserDevice device = findDeviceByEnterpriseAndIdentifier(enterprise, normalizedDeviceIdentifier);
 
         if (device.getIsActive() == null || !device.getIsActive()) {
             throw new RuntimeException("Device is inactive");
@@ -245,16 +235,14 @@ public class DeviceRegistrationService {
 
     private UserDevice findExistingDeviceForRegistration(
             EnterpriseMaster enterprise,
-            String deviceIdentifier,
-            String physicalDeviceKey
+            String deviceIdentifier
     ) {
         List<UserDevice> devices = new ArrayList<>();
         devices.addAll(userDeviceRepository.findByDeviceIdentifier(deviceIdentifier));
-        devices.addAll(userDeviceRepository.findByPhysicalDeviceKey(physicalDeviceKey));
 
         for (UserDevice device : userDeviceRepository.findAll()) {
-            if (physicalDeviceKey.equals(extractPhysicalDeviceKey(device.getDeviceIdentifier()))
-                    && devices.stream().noneMatch(existing -> existing.getId().equals(device.getId()))) {
+            if (deviceIdentifier.equals(normalizeDeviceIdentifier(device.getDeviceIdentifier()))
+                    && !containsDevice(devices, device)) {
                 devices.add(device);
             }
         }
@@ -279,7 +267,38 @@ public class DeviceRegistrationService {
         return deviceRegisteredToThisEnterprise;
     }
 
-    private String extractPhysicalDeviceKey(String deviceIdentifier) {
+    private UserDevice findDeviceByEnterpriseAndIdentifier(
+            EnterpriseMaster enterprise,
+            String deviceIdentifier
+    ) {
+        UserDevice device = userDeviceRepository
+                .findByEnterpriseAndDeviceIdentifier(enterprise, deviceIdentifier)
+                .orElse(null);
+
+        if (device != null) {
+            return device;
+        }
+
+        for (UserDevice enterpriseDevice : userDeviceRepository.findByEnterprise(enterprise)) {
+            if (deviceIdentifier.equals(normalizeDeviceIdentifier(enterpriseDevice.getDeviceIdentifier()))) {
+                return enterpriseDevice;
+            }
+        }
+
+        throw new RuntimeException("Device not registered for this enterprise");
+    }
+
+    private boolean containsDevice(List<UserDevice> devices, UserDevice candidate) {
+        for (UserDevice device : devices) {
+            if (device.getId() != null && device.getId().equals(candidate.getId())) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private String normalizeDeviceIdentifier(String deviceIdentifier) {
         String trimmedDeviceIdentifier = deviceIdentifier.trim();
         int separatorIndex = trimmedDeviceIdentifier.indexOf('_');
 

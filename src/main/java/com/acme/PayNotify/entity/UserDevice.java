@@ -16,10 +16,6 @@ import java.sql.Timestamp;
                         columnNames = {"device_identifier"}
                 ),
                 @UniqueConstraint(
-                        name = "uk_user_device_physical_device_key",
-                        columnNames = {"physical_device_key"}
-                ),
-                @UniqueConstraint(
                         name = "uk_user_device_terminal_id",
                         columnNames = {"terminal_id"}
                 ),
@@ -50,9 +46,6 @@ public class UserDevice extends BaseEntity {
 
     @Column(name = "device_identifier", nullable = false, unique = true, length = 200)
     private String deviceIdentifier;
-
-    @Column(name = "physical_device_key", unique = true, length = 200)
-    private String physicalDeviceKey;
 
     @Column(name = "device_name", unique = true, length = 200)
     private String deviceName;

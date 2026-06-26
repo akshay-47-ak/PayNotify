@@ -135,13 +135,15 @@ public class EnterpriseService {
             return response;
         }
 
+        String normalizedEnterpriseCode = enterpriseCode.trim().toUpperCase();
+
         EnterpriseMaster enterprise = enterpriseMasterRepository
-                .findByEnterpriseCode(enterpriseCode.trim())
+                .findByEnterpriseCode(normalizedEnterpriseCode)
                 .orElse(null);
 
         if (enterprise == null) {
             response.setValid(false);
-            response.setEnterpriseCode(enterpriseCode);
+            response.setEnterpriseCode(normalizedEnterpriseCode);
             response.setStatus("NOT_FOUND");
             response.setMessage("Enterprise not found");
             return response;
@@ -178,7 +180,7 @@ public class EnterpriseService {
         }
 
         EnterpriseMaster enterprise = enterpriseMasterRepository
-                .findByEnterpriseCode(enterpriseCode.trim())
+                .findByEnterpriseCode(enterpriseCode.trim().toUpperCase())
                 .orElseThrow(() -> new RuntimeException("Enterprise not found"));
 
         if (enterprise.getIsActive() == null || !enterprise.getIsActive()) {
