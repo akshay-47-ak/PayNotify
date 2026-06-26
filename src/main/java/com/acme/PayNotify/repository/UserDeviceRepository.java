@@ -13,6 +13,8 @@ public interface UserDeviceRepository extends JpaRepository<UserDevice, Long> {
 
     List<UserDevice> findByDeviceIdentifier(String deviceIdentifier);
 
+    List<UserDevice> findByPhysicalDeviceKey(String physicalDeviceKey);
+
     List<UserDevice> findByDeviceName(String deviceName);
 
     Optional<UserDevice> findByEnterpriseAndTerminalId(EnterpriseMaster enterprise, String terminalId);

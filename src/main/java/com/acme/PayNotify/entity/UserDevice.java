@@ -12,12 +12,20 @@ import java.sql.Timestamp;
         name = "user_device",
         uniqueConstraints = {
                 @UniqueConstraint(
-                        name = "uk_user_device_enterprise_device",
-                        columnNames = {"enterprise_id", "device_identifier"}
+                        name = "uk_user_device_device_identifier",
+                        columnNames = {"device_identifier"}
+                ),
+                @UniqueConstraint(
+                        name = "uk_user_device_physical_device_key",
+                        columnNames = {"physical_device_key"}
                 ),
                 @UniqueConstraint(
                         name = "uk_user_device_terminal_id",
                         columnNames = {"terminal_id"}
+                ),
+                @UniqueConstraint(
+                        name = "uk_user_device_device_name",
+                        columnNames = {"device_name"}
                 )
         }
 )
@@ -40,10 +48,13 @@ public class UserDevice extends BaseEntity {
     @Column(name = "role", nullable = false, length = 20)
     private String role;
 
-    @Column(name = "device_identifier", nullable = false, length = 200)
+    @Column(name = "device_identifier", nullable = false, unique = true, length = 200)
     private String deviceIdentifier;
 
-    @Column(name = "device_name", length = 200)
+    @Column(name = "physical_device_key", unique = true, length = 200)
+    private String physicalDeviceKey;
+
+    @Column(name = "device_name", unique = true, length = 200)
     private String deviceName;
 
     @Column(name = "password_hash", length = 255)

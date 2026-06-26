@@ -8,6 +8,7 @@ import com.acme.PayNotify.entity.EnterpriseMaster;
 import com.acme.PayNotify.entity.UserDevice;
 import com.acme.PayNotify.repository.UserDeviceRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKeyFactory;
@@ -71,9 +72,14 @@ public class DeviceRegistrationService {
                 enterpriseService.getValidatedEnterprise(request.getEnterpriseCode());
 
         String deviceIdentifier = request.getDeviceIdentifier().trim();
+        String physicalDeviceKey = extractPhysicalDeviceKey(deviceIdentifier);
         String deviceName = request.getDeviceName().trim();
 
-        UserDevice existingDevice = findExistingDeviceForRegistration(enterprise, deviceIdentifier);
+        UserDevice existingDevice = findExistingDeviceForRegistration(
+                enterprise,
+                deviceIdentifier,
+                physicalDeviceKey
+        );
 
         validateDeviceNameIsAvailable(deviceName, existingDevice);
 
@@ -98,7 +104,12 @@ public class DeviceRegistrationService {
                 existingDevice.setPasswordHash(hashPassword(request.getPassword()));
             }
 
-            existingDevice = userDeviceRepository.save(existingDevice);
+            if (existingDevice.getPhysicalDeviceKey() == null
+                    || existingDevice.getPhysicalDeviceKey().trim().isEmpty()) {
+                existingDevice.setPhysicalDeviceKey(physicalDeviceKey);
+            }
+
+            existingDevice = saveDevice(existingDevice);
 
             DeviceRegistrationResponse response = buildResponse(existingDevice, enterprise);
             response.setStatus("ALREADY_REGISTERED");
@@ -110,6 +121,7 @@ public class DeviceRegistrationService {
         device.setEnterprise(enterprise);
         device.setRole(role);
         device.setDeviceIdentifier(deviceIdentifier);
+        device.setPhysicalDeviceKey(physicalDeviceKey);
         device.setDeviceName(deviceName);
         device.setPasswordHash(hashPassword(request.getPassword()));
         device.setTerminalId(generateNextTerminalId());
@@ -118,7 +130,7 @@ public class DeviceRegistrationService {
         device.setCompCode(1);
         device.setTenantCode(1);
 
-        device = userDeviceRepository.save(device);
+        device = saveDevice(device);
 
         DeviceRegistrationResponse response = buildResponse(device, enterprise);
         response.setStatus("REGISTERED");
@@ -233,24 +245,49 @@ public class DeviceRegistrationService {
 
     private UserDevice findExistingDeviceForRegistration(
             EnterpriseMaster enterprise,
-            String deviceIdentifier
+            String deviceIdentifier,
+            String physicalDeviceKey
     ) {
-        List<UserDevice> devices = userDeviceRepository.findByDeviceIdentifier(deviceIdentifier);
+        List<UserDevice> devices = new ArrayList<>();
+        devices.addAll(userDeviceRepository.findByDeviceIdentifier(deviceIdentifier));
+        devices.addAll(userDeviceRepository.findByPhysicalDeviceKey(physicalDeviceKey));
+
+        for (UserDevice device : userDeviceRepository.findAll()) {
+            if (physicalDeviceKey.equals(extractPhysicalDeviceKey(device.getDeviceIdentifier()))
+                    && devices.stream().noneMatch(existing -> existing.getId().equals(device.getId()))) {
+                devices.add(device);
+            }
+        }
 
         if (devices.isEmpty()) {
             return null;
         }
 
+        UserDevice deviceRegisteredToThisEnterprise = null;
+
         for (UserDevice device : devices) {
             EnterpriseMaster registeredEnterprise = device.getEnterprise();
-            if (registeredEnterprise != null
-                    && registeredEnterprise.getId() != null
-                    && registeredEnterprise.getId().equals(enterprise.getId())) {
-                return device;
+            if (registeredEnterprise == null
+                    || registeredEnterprise.getId() == null
+                    || !registeredEnterprise.getId().equals(enterprise.getId())) {
+                throw new RuntimeException("Device is already registered with another enterprise");
             }
+
+            deviceRegisteredToThisEnterprise = device;
         }
 
-        throw new RuntimeException("Device is already registered with another enterprise");
+        return deviceRegisteredToThisEnterprise;
+    }
+
+    private String extractPhysicalDeviceKey(String deviceIdentifier) {
+        String trimmedDeviceIdentifier = deviceIdentifier.trim();
+        int separatorIndex = trimmedDeviceIdentifier.indexOf('_');
+
+        if (separatorIndex < 0 || separatorIndex == trimmedDeviceIdentifier.length() - 1) {
+            return trimmedDeviceIdentifier;
+        }
+
+        return trimmedDeviceIdentifier.substring(separatorIndex + 1);
     }
 
     private void validateDeviceNameIsAvailable(String deviceName, UserDevice existingDevice) {
@@ -261,6 +298,25 @@ public class DeviceRegistrationService {
                 throw new RuntimeException("Device name is already registered");
             }
         }
+    }
+
+    private UserDevice saveDevice(UserDevice device) {
+        try {
+            return userDeviceRepository.save(device);
+        } catch (DataIntegrityViolationException e) {
+            if (isDeviceNameConstraintViolation(e)) {
+                throw new RuntimeException("Device name is already registered", e);
+            }
+            throw new RuntimeException("Device is already registered with another enterprise", e);
+        }
+    }
+
+    private boolean isDeviceNameConstraintViolation(DataIntegrityViolationException e) {
+        String message = e.getMostSpecificCause() == null
+                ? e.getMessage()
+                : e.getMostSpecificCause().getMessage();
+
+        return message != null && message.toLowerCase().contains("device_name");
     }
 
     private String hashPassword(String password) {
