@@ -101,21 +101,29 @@ public class EnterpriseService {
     }
 
     private DepartmentInfo resolveDepartmentByName(String department) {
-        return switch (department) {
-            case DEPARTMENT_PADM -> new DepartmentInfo(DEPARTMENT_PADM, 1);
-            case DEPARTMENT_INFINITY -> new DepartmentInfo(DEPARTMENT_INFINITY, 2);
-            case DEPARTMENT_INSIGHT -> new DepartmentInfo(DEPARTMENT_INSIGHT, 3);
-            default -> throw new RuntimeException("Invalid department. Allowed values are PADM, INFINITY or INSIGHT");
-        };
+        switch (department) {
+            case DEPARTMENT_PADM:
+                return new DepartmentInfo(DEPARTMENT_PADM, 1);
+            case DEPARTMENT_INFINITY:
+                return new DepartmentInfo(DEPARTMENT_INFINITY, 2);
+            case DEPARTMENT_INSIGHT:
+                return new DepartmentInfo(DEPARTMENT_INSIGHT, 3);
+            default:
+                throw new RuntimeException("Invalid department. Allowed values are PADM, INFINITY or INSIGHT");
+        }
     }
 
     private DepartmentInfo resolveDepartmentByCode(Integer departmentCode) {
-        return switch (departmentCode) {
-            case 1 -> new DepartmentInfo(DEPARTMENT_PADM, 1);
-            case 2 -> new DepartmentInfo(DEPARTMENT_INFINITY, 2);
-            case 3 -> new DepartmentInfo(DEPARTMENT_INSIGHT, 3);
-            default -> throw new RuntimeException("Invalid department code. Allowed values are 1, 2 or 3");
-        };
+        switch (departmentCode) {
+            case 1:
+                return new DepartmentInfo(DEPARTMENT_PADM, 1);
+            case 2:
+                return new DepartmentInfo(DEPARTMENT_INFINITY, 2);
+            case 3:
+                return new DepartmentInfo(DEPARTMENT_INSIGHT, 3);
+            default:
+                throw new RuntimeException("Invalid department code. Allowed values are 1, 2 or 3");
+        }
     }
 
     private void populateEnterpriseDetails(EnterpriseValidationResponse response, EnterpriseMaster enterprise) {

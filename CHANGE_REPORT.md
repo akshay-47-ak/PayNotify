@@ -2,6 +2,119 @@
 
 This file is the running report for application changes. Add every new change at the top with the current date and time, followed by affected files, API request/response changes, database changes, validation behavior, and verification results.
 
+## 2026-06-27 00:00:00 IST - PhonePe Web Confirmation Polling Fields
+
+### Summary
+
+Updated the PhonePe assisted verification flow so the cashier web screen can display and submit Confirm / Reject actions even when websocket details are not available and the web client is using polling.
+
+Android remains notification-only for PhonePe. Android should not show Confirm / Reject buttons. Cashier confirmation belongs on the web screen.
+
+### Affected Files
+
+- `src/main/java/com/acme/PayNotify/dto/PaymentStatusResponse.java`
+- `src/main/java/com/acme/PayNotify/dto/PaymentNotificationResponse.java`
+- `src/main/java/com/acme/PayNotify/service/PaymentService.java`
+- `src/main/java/com/acme/PayNotify/service/PaymentWebSocketService.java`
+- `CHANGE_REPORT.md`
+
+### Behavior Changes
+
+- `PHONEPE_PAYMENT_CONFIRMATION_REQUIRED` websocket event is sent only to `/topic/payment/{paymentId}` for the cashier web screen.
+- Android terminal topic `/topic/terminal/{terminalId}` no longer receives the PhonePe confirmation-required event.
+- Final payment success/reject status updates still go to both web and Android terminal topics.
+- `GET /api/payment/status/{paymentId}` now returns the PhonePe confirmation details required by the web screen.
+- Web can render Confirm / Reject using polling data when websocket is disconnected or unavailable.
+
+### Payment Status API Change
+
+Endpoint:
+
+```http
+GET /api/payment/status/{paymentId}
+```
+
+When status is `PHONEPE_MATCHED_WAITING_CONFIRMATION`, response `data` now includes:
+
+```json
+{
+  "paymentId": "PAY-...",
+  "terminalId": "TERM-...",
+  "amount": 500.00,
+  "status": "PHONEPE_MATCHED_WAITING_CONFIRMATION",
+  "payerName": "Rahul",
+  "notificationId": 501,
+  "message": "PhonePe payment received. Please confirm after checking customer."
+}
+```
+
+### Web UI Required Change
+
+When polling returns:
+
+```text
+PHONEPE_MATCHED_WAITING_CONFIRMATION
+```
+
+the cashier web screen should:
+
+- Show PhonePe confirmation panel.
+- Display `notificationId`, `amount`, `payerName`, and `message` from the status response.
+- Enable Confirm only when `notificationId` is present.
+- Enable Reject only when `notificationId` is present.
+
+Confirm request:
+
+```http
+POST /api/payments/{paymentId}/phonepe/confirm
+```
+
+```json
+{
+  "cashierId": 10,
+  "notificationId": 501
+}
+```
+
+Reject request:
+
+```http
+POST /api/payments/{paymentId}/phonepe/reject
+```
+
+```json
+{
+  "cashierId": 10,
+  "notificationId": 501,
+  "reason": "Not my customer"
+}
+```
+
+### Android Behavior
+
+- Android sends the PhonePe notification payload to backend.
+- Android does not show Confirm / Reject.
+- Android waits for the final backend status update after cashier confirmation or rejection.
+
+### Database Change
+
+No database change for this entry.
+
+### Verification
+
+Command:
+
+```bash
+JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 ./mvnw -q -DskipTests compile
+JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 ./mvnw -q test
+```
+
+Result:
+
+```text
+BUILD SUCCESS
+```
+
 ## 2026-06-25 11:49:46 IST - Department Dropdown API
 
 ### Summary

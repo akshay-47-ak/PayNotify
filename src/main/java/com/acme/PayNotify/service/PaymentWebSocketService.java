@@ -44,9 +44,23 @@ public class PaymentWebSocketService {
         }
 
         PaymentStatusEvent event = buildEvent(payment, message);
+        event.setEventType("PAYMENT_SUCCESS");
 
         messagingTemplate.convertAndSend("/topic/payment/" + payment.getPaymentId(), event);
         messagingTemplate.convertAndSend("/topic/terminal/" + payment.getTerminalId(), event);
+    }
+
+    public void publishPhonePeConfirmationRequired(PaymentRequest payment, Long notificationId, String payerName) {
+        if (payment == null || payment.getPaymentId() == null || payment.getPaymentId().trim().isEmpty()) {
+            return;
+        }
+
+        PaymentStatusEvent event = buildEvent(payment, "PhonePe payment received. Please confirm after checking customer.");
+        event.setEventType("PHONEPE_PAYMENT_CONFIRMATION_REQUIRED");
+        event.setNotificationId(notificationId);
+        event.setPayerName(payerName);
+
+        messagingTemplate.convertAndSend("/topic/payment/" + payment.getPaymentId(), event);
     }
 
     private PaymentStatusEvent buildEvent(PaymentRequest payment, String message) {

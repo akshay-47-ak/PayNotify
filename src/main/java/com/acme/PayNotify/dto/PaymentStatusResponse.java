@@ -20,6 +20,8 @@ public class PaymentStatusResponse {
     private String status;
     private String payerName;
     private String utr;
+    private Long notificationId;
+    private String message;
     private Timestamp createdAt;
     private Timestamp updatedAt;
 }

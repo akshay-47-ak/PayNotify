@@ -45,6 +45,15 @@ public class PaymentRequest extends BaseEntity{
     @Column(name = "source_app", length = 50)
     private String sourceApp;
 
+    @Column(name = "cashier_id")
+    private Long cashierId;
+
+    @Column(name = "cashier_session_id", length = 100)
+    private String cashierSessionId;
+
+    @Column(name = "branch_id")
+    private Long branchId;
+
     @Column(name = "amount", nullable = false, precision = 18, scale = 2)
     private BigDecimal amount;
 
@@ -54,7 +63,7 @@ public class PaymentRequest extends BaseEntity{
     @Column(name = "upi_url", columnDefinition = "TEXT")
     private String upiUrl;
 
-    @Column(name = "status", nullable = false, length = 20)
+    @Column(name = "status", nullable = false, length = 50)
     private String status;
 
     @Column(name = "utr", length = 100)
@@ -68,6 +77,21 @@ public class PaymentRequest extends BaseEntity{
 
     @Column(name = "updated_at", nullable = false)
     private Timestamp updatedAt;
+
+    @Column(name = "expires_at")
+    private Timestamp expiresAt;
+
+    @Column(name = "paid_at")
+    private Timestamp paidAt;
+
+    @Column(name = "confirmed_at")
+    private Timestamp confirmedAt;
+
+    @Column(name = "confirmed_by")
+    private Long confirmedBy;
+
+    @Column(name = "matched_notification_id")
+    private Long matchedNotificationId;
 
     @Column(name = "document_own_code")
     private Long documentOwnCode;

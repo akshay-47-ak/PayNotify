@@ -20,5 +20,6 @@ public class PaymentNotificationResponse {
     private boolean amountMatched;
     private String utr;
     private String payerName;
+    private Long notificationId;
     private String message;
 }

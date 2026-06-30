@@ -22,4 +22,6 @@ public class PaymentStatusEvent {
     private String message;
     private Long timestamp;
     private String sourceApp;
+    private String eventType;
+    private Long notificationId;
 }

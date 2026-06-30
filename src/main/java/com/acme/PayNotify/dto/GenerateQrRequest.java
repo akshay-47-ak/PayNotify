@@ -18,4 +18,7 @@ public class GenerateQrRequest {
     private BigDecimal amount;
     private String sourceApp;
     private Long documentOwnCode;
+    private Long cashierId;
+    private String cashierSessionId;
+    private Long branchId;
 }

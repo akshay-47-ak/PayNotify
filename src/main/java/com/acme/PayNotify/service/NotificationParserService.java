@@ -47,6 +47,7 @@ public class NotificationParserService {
 
     private String extractPayerName(String text) {
         String[] patterns = new String[]{
+                "(?i)^([A-Za-z][A-Za-z .]{1,80}?)\\s+has\\s+sent\\s+(?:₹|rs\\.?|inr)\\b",
                 "(?i)^([A-Za-z][A-Za-z .]{1,80}?)\\s+paid\\s+you\\b",
                 "(?i)^([A-Za-z][A-Za-z .]{1,80}?)\\s+sent\\s+you\\b",
                 "(?i)received\\s+from\\s+([A-Za-z][A-Za-z .]{1,80}?)(?:\\b|₹|rs|inr)",
