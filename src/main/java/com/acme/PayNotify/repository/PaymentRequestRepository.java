@@ -36,6 +36,23 @@ public interface PaymentRequestRepository extends JpaRepository<PaymentRequest, 
 
     List<PaymentRequest> findByTerminalIdAndStatusIn(String terminalId, List<String> statuses);
 
+    List<PaymentRequest> findByMatchedNotificationIdAndStatus(Long matchedNotificationId, String status);
+
+    @Query("select p from PaymentRequest p "
+            + "where p.enterprise = :enterprise "
+            + "and p.amount = :amount "
+            + "and p.status in :statuses "
+            + "and p.createdAt <= :notificationTime "
+            + "and p.expiresAt >= :graceStart "
+            + "order by p.createdAt desc")
+    List<PaymentRequest> findActiveEnterpriseAttemptsForPhonePe(
+            @Param("enterprise") EnterpriseMaster enterprise,
+            @Param("amount") BigDecimal amount,
+            @Param("statuses") List<String> statuses,
+            @Param("notificationTime") Timestamp notificationTime,
+            @Param("graceStart") Timestamp graceStart
+    );
+
     @Query("select p from PaymentRequest p "
             + "where p.terminalId = :terminalId "
             + "and p.amount = :amount "

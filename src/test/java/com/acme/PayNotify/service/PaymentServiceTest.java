@@ -4,6 +4,7 @@ import com.acme.PayNotify.dto.GenerateQrRequest;
 import com.acme.PayNotify.dto.PaymentNotificationRequest;
 import com.acme.PayNotify.dto.PaymentNotificationResponse;
 import com.acme.PayNotify.dto.PhonePeConfirmRequest;
+import com.acme.PayNotify.dto.PhonePeRejectRequest;
 import com.acme.PayNotify.entity.EnterpriseMaster;
 import com.acme.PayNotify.entity.PaymentNotificationLog;
 import com.acme.PayNotify.entity.PaymentRequest;
@@ -22,6 +23,7 @@ import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -139,6 +141,9 @@ class PaymentServiceTest {
         when(paymentRequestRepository.findActiveAttemptForPhonePe(
                 eq("TERM-1"), eq(new BigDecimal("500.00")), eq("WAITING"), any(), any()
         )).thenReturn(Collections.singletonList(payment));
+        when(paymentRequestRepository.findActiveEnterpriseAttemptsForPhonePe(
+                eq(enterprise), eq(new BigDecimal("500.00")), anyList(), any(), any()
+        )).thenReturn(Collections.singletonList(payment));
         when(paymentRequestRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         PaymentNotificationResponse response = paymentService.processNotification(request);
@@ -147,7 +152,116 @@ class PaymentServiceTest {
         assertEquals("PHONEPE_MATCHED_WAITING_CONFIRMATION", response.getStatus());
         assertEquals("PHONEPE_MATCHED_WAITING_CONFIRMATION", payment.getStatus());
         assertEquals(501L, payment.getMatchedNotificationId());
-        verify(paymentWebSocketService).publishPhonePeConfirmationRequired(payment, 501L, "Rahul");
+        verify(paymentWebSocketService).publishPhonePeConfirmationRequired(Collections.singletonList(payment), 501L, "Rahul");
+    }
+
+    @Test
+    void phonePeNotificationGoesToAllActiveEnterprisePaymentRequestsWithSameAmount() {
+        PaymentRequest firstPayment = waitingPayment();
+        PaymentRequest secondPayment = waitingPayment();
+        secondPayment.setId(2L);
+        secondPayment.setPaymentId("PAY-2");
+        secondPayment.setTerminalId("TERM-2");
+
+        PaymentNotificationRequest request = baseNotification("PhonePe", "com.phonepe.app");
+        request.setAmount(new BigDecimal("500.00"));
+        request.setPayerName("Rahul");
+
+        when(deviceRegistrationService.getActiveDevice("ENT", "DEVICE-1")).thenReturn(terminal);
+        when(notificationParserService.parse(any())).thenReturn(parsed("500.00", null, "Rahul"));
+        when(paymentNotificationLogRepository.findByDedupeHash(any())).thenReturn(Optional.empty());
+        when(paymentNotificationLogRepository.save(any())).thenAnswer(invocation -> {
+            PaymentNotificationLog log = invocation.getArgument(0);
+            if (log.getId() == null) {
+                log.setId(501L);
+            }
+            return log;
+        });
+        when(paymentRequestRepository.findActiveAttemptForPhonePe(
+                eq("TERM-1"), eq(new BigDecimal("500.00")), eq("WAITING"), any(), any()
+        )).thenReturn(Collections.singletonList(firstPayment));
+        when(paymentRequestRepository.findActiveEnterpriseAttemptsForPhonePe(
+                eq(enterprise), eq(new BigDecimal("500.00")), anyList(), any(), any()
+        )).thenReturn(Arrays.asList(secondPayment, firstPayment));
+        when(paymentRequestRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PaymentNotificationResponse response = paymentService.processNotification(request);
+
+        assertTrue(response.isMatched());
+        assertEquals("PHONEPE_MATCHED_WAITING_CONFIRMATION", response.getStatus());
+        assertEquals("PHONEPE_MATCHED_WAITING_CONFIRMATION", firstPayment.getStatus());
+        assertEquals("PHONEPE_MATCHED_WAITING_CONFIRMATION", secondPayment.getStatus());
+        assertEquals(501L, firstPayment.getMatchedNotificationId());
+        assertEquals(501L, secondPayment.getMatchedNotificationId());
+        verify(paymentWebSocketService)
+                .publishPhonePeConfirmationRequired(Arrays.asList(secondPayment, firstPayment), 501L, "Rahul");
+    }
+
+    @Test
+    void phonePeRejectOnlyRemovesThatPaymentWhenOtherCandidatesRemain() {
+        PaymentRequest rejectedPayment = waitingPayment();
+        rejectedPayment.setStatus("PHONEPE_MATCHED_WAITING_CONFIRMATION");
+        rejectedPayment.setMatchedNotificationId(501L);
+
+        PaymentRequest remainingPayment = waitingPayment();
+        remainingPayment.setId(2L);
+        remainingPayment.setPaymentId("PAY-2");
+        remainingPayment.setStatus("PHONEPE_MATCHED_WAITING_CONFIRMATION");
+        remainingPayment.setMatchedNotificationId(501L);
+
+        PaymentNotificationLog notification = new PaymentNotificationLog();
+        notification.setId(501L);
+        notification.setStatus("MATCHED_WAITING_CONFIRMATION");
+        notification.setAmount(new BigDecimal("500.00"));
+
+        when(paymentRequestRepository.findByPaymentId("PAY-1")).thenReturn(Optional.of(rejectedPayment));
+        when(paymentRequestRepository.findByIdForUpdate(rejectedPayment.getId())).thenReturn(Optional.of(rejectedPayment));
+        when(paymentNotificationLogRepository.findByIdForUpdate(501L)).thenReturn(Optional.of(notification));
+        when(paymentRequestRepository.findByMatchedNotificationIdAndStatus(501L, "PHONEPE_MATCHED_WAITING_CONFIRMATION"))
+                .thenReturn(Collections.singletonList(remainingPayment));
+        when(paymentRequestRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(paymentNotificationLogRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PhonePeRejectRequest request = new PhonePeRejectRequest(10L, 501L, "Not my payment");
+
+        PaymentNotificationResponse response = paymentService.rejectPhonePePayment("PAY-1", request);
+
+        assertEquals("REJECTED_BY_CASHIER", response.getStatus());
+        assertEquals("WAITING", rejectedPayment.getStatus());
+        assertEquals("MATCHED_WAITING_CONFIRMATION", notification.getStatus());
+        assertEquals(501L, remainingPayment.getMatchedNotificationId());
+    }
+
+    @Test
+    void phonePeConfirmAllowsDifferentTerminalWhenNotificationBelongsToSameEnterprise() {
+        PaymentRequest payment = waitingPayment();
+        payment.setTerminalId("TERM-2");
+        payment.setStatus("PHONEPE_MATCHED_WAITING_CONFIRMATION");
+        payment.setMatchedNotificationId(501L);
+
+        PaymentNotificationLog notification = new PaymentNotificationLog();
+        notification.setId(501L);
+        notification.setEnterprise(enterprise);
+        notification.setTerminalId("TERM-1");
+        notification.setStatus("MATCHED_WAITING_CONFIRMATION");
+        notification.setAmount(new BigDecimal("500.00"));
+
+        when(paymentRequestRepository.findByPaymentId("PAY-1")).thenReturn(Optional.of(payment));
+        when(paymentRequestRepository.findByIdForUpdate(payment.getId())).thenReturn(Optional.of(payment));
+        when(paymentNotificationLogRepository.findByIdForUpdate(501L)).thenReturn(Optional.of(notification));
+        when(paymentRequestRepository.findByMatchedNotificationIdAndStatus(501L, "PHONEPE_MATCHED_WAITING_CONFIRMATION"))
+                .thenReturn(Collections.emptyList());
+        when(paymentRequestRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(paymentNotificationLogRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PhonePeConfirmRequest request = new PhonePeConfirmRequest(20L, 501L);
+
+        PaymentNotificationResponse response = paymentService.confirmPhonePePayment("PAY-1", request);
+
+        assertTrue(response.isMatched());
+        assertEquals("PAID_CONFIRMED_BY_CASHIER", response.getStatus());
+        assertEquals("PAID_CONFIRMED_BY_CASHIER", payment.getStatus());
+        assertEquals(payment.getId(), notification.getMatchedPaymentAttemptId());
     }
 
     @Test

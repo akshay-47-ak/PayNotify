@@ -8,8 +8,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 @Service
 public class PaymentWebSocketService {
+
+    private static final String STATUS_PAID_AUTO_VERIFIED = "PAID_AUTO_VERIFIED";
+    private static final String STATUS_PAID_CONFIRMED_BY_CASHIER = "PAID_CONFIRMED_BY_CASHIER";
+    private static final String STATUS_PHONEPE_WAITING_CONFIRMATION = "PHONEPE_MATCHED_WAITING_CONFIRMATION";
+    private static final String STATUS_WAITING = "WAITING";
+    private static final String STATUS_EXPIRED = "EXPIRED";
+    private static final String STATUS_REJECTED_BY_CASHIER = "REJECTED_BY_CASHIER";
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
@@ -44,10 +53,13 @@ public class PaymentWebSocketService {
         }
 
         PaymentStatusEvent event = buildEvent(payment, message);
-        event.setEventType("PAYMENT_SUCCESS");
+        event.setEventType(resolvePaymentUpdateEventType(payment.getStatus()));
 
         messagingTemplate.convertAndSend("/topic/payment/" + payment.getPaymentId(), event);
         messagingTemplate.convertAndSend("/topic/terminal/" + payment.getTerminalId(), event);
+        if (event.getEnterpriseCode() != null && !event.getEnterpriseCode().trim().isEmpty()) {
+            messagingTemplate.convertAndSend("/topic/enterprise/" + event.getEnterpriseCode() + "/payments", event);
+        }
     }
 
     public void publishPhonePeConfirmationRequired(PaymentRequest payment, Long notificationId, String payerName) {
@@ -61,6 +73,19 @@ public class PaymentWebSocketService {
         event.setPayerName(payerName);
 
         messagingTemplate.convertAndSend("/topic/payment/" + payment.getPaymentId(), event);
+        if (event.getEnterpriseCode() != null && !event.getEnterpriseCode().trim().isEmpty()) {
+            messagingTemplate.convertAndSend("/topic/enterprise/" + event.getEnterpriseCode() + "/payments", event);
+        }
+    }
+
+    public void publishPhonePeConfirmationRequired(List<PaymentRequest> payments, Long notificationId, String payerName) {
+        if (payments == null || payments.isEmpty()) {
+            return;
+        }
+
+        for (PaymentRequest payment : payments) {
+            publishPhonePeConfirmationRequired(payment, notificationId, payerName);
+        }
     }
 
     private PaymentStatusEvent buildEvent(PaymentRequest payment, String message) {
@@ -87,5 +112,18 @@ public class PaymentWebSocketService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private String resolvePaymentUpdateEventType(String status) {
+        if (STATUS_PAID_AUTO_VERIFIED.equals(status) || STATUS_PAID_CONFIRMED_BY_CASHIER.equals(status)) {
+            return "PAYMENT_SUCCESS";
+        }
+        if (STATUS_PHONEPE_WAITING_CONFIRMATION.equals(status)) {
+            return "PHONEPE_PAYMENT_CONFIRMATION_REQUIRED";
+        }
+        if (STATUS_WAITING.equals(status) || STATUS_EXPIRED.equals(status) || STATUS_REJECTED_BY_CASHIER.equals(status)) {
+            return "PAYMENT_STATUS_UPDATED";
+        }
+        return "PAYMENT_STATUS_UPDATED";
     }
 }

@@ -2,6 +2,65 @@
 
 This file is the running report for application changes. Add every new change at the top with the current date and time, followed by affected files, API request/response changes, database changes, validation behavior, and verification results.
 
+## 2026-06-30 14:35:00 IST - Disable Hibernate Auto Schema Update on Startup
+
+### Summary
+
+Changed application startup to skip Hibernate `ddl-auto=update` schema synchronization. Startup was stalling after JPA initialization against the remote MySQL 5.7 database and the process was being killed before the app completed boot.
+
+### Affected Files
+
+- `src/main/resources/application.properties`
+- `CHANGE_REPORT.md`
+
+### Behavior Changes
+
+- Spring Boot no longer attempts to inspect/update the database schema on every server startup.
+- Database changes must be applied explicitly with the SQL migration scripts before running code that depends on new columns/indexes.
+
+### Verification
+
+Ran:
+
+```bash
+JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 timeout 25s ./mvnw spring-boot:run
+```
+
+Result: server reached `Started PayNotifyApplication` before the timeout stopped the verification run.
+
+## 2026-06-30 12:45:00 IST - PhonePe Multi-Cashier Confirmation Routing
+
+### Summary
+
+Updated PhonePe assisted verification so a PhonePe notification received on one Android device can be offered to every active same-enterprise, same-amount payment request window. This supports multiple cashier PCs under one enterprise when the notification arrives on an owner device or another shared device.
+
+### Affected Files
+
+- `src/main/java/com/acme/PayNotify/repository/PaymentRequestRepository.java`
+- `src/main/java/com/acme/PayNotify/service/PaymentService.java`
+- `src/main/java/com/acme/PayNotify/service/PaymentWebSocketService.java`
+- `src/test/java/com/acme/PayNotify/service/PaymentServiceTest.java`
+- `CHANGE_REPORT.md`
+
+### Behavior Changes
+
+- PhonePe matching now finds active same-enterprise, same-amount QR requests inside the valid notification time window.
+- A matching PhonePe notification is published to all candidate `/topic/payment/{paymentId}` windows.
+- Payment updates are also published on `/topic/enterprise/{enterpriseCode}/payments`.
+- Confirming from one cashier claims the notification for that payment and releases the other candidate payment windows back to waiting/expired.
+- Rejecting from one cashier only removes that cashier payment request from the candidate list; remaining cashier windows can still confirm the same notification.
+- Confirmation validates same enterprise and amount instead of requiring the notification device terminal to match the cashier payment terminal.
+
+### Verification
+
+Ran:
+
+```bash
+JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 ./mvnw test
+```
+
+Result: `Tests run: 10, Failures: 0, Errors: 0, Skipped: 0`.
+
 ## 2026-06-27 00:00:00 IST - PhonePe Web Confirmation Polling Fields
 
 ### Summary
