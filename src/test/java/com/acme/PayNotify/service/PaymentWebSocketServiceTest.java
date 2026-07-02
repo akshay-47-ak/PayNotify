@@ -13,6 +13,8 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isA;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -53,6 +55,21 @@ class PaymentWebSocketServiceTest {
 
         assertEquals("PAYMENT_SUCCESS", eventCaptor.getValue().getEventType());
         assertEquals("PAID_CONFIRMED_BY_CASHIER", eventCaptor.getValue().getStatus());
+    }
+
+    @Test
+    void phonePeConfirmationRequiredIsOnlyPublishedToMatchedPayment() {
+        PaymentRequest payment = payment("PHONEPE_MATCHED_WAITING_CONFIRMATION");
+
+        paymentWebSocketService.publishPhonePeConfirmationRequired(payment, 501L, "Rahul");
+
+        ArgumentCaptor<PaymentStatusEvent> eventCaptor = ArgumentCaptor.forClass(PaymentStatusEvent.class);
+        verify(messagingTemplate).convertAndSend(eq("/topic/payment/PAY-1"), eventCaptor.capture());
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/enterprise/ENT/payments"), isA(PaymentStatusEvent.class));
+
+        assertEquals("PHONEPE_PAYMENT_CONFIRMATION_REQUIRED", eventCaptor.getValue().getEventType());
+        assertEquals("PHONEPE_MATCHED_WAITING_CONFIRMATION", eventCaptor.getValue().getStatus());
+        assertEquals(501L, eventCaptor.getValue().getNotificationId());
     }
 
     private PaymentRequest payment(String status) {

@@ -73,9 +73,6 @@ public class PaymentWebSocketService {
         event.setPayerName(payerName);
 
         messagingTemplate.convertAndSend("/topic/payment/" + payment.getPaymentId(), event);
-        if (event.getEnterpriseCode() != null && !event.getEnterpriseCode().trim().isEmpty()) {
-            messagingTemplate.convertAndSend("/topic/enterprise/" + event.getEnterpriseCode() + "/payments", event);
-        }
     }
 
     public void publishPhonePeConfirmationRequired(List<PaymentRequest> payments, Long notificationId, String payerName) {

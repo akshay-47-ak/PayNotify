@@ -2,6 +2,34 @@
 
 This file is the running report for application changes. Add every new change at the top with the current date and time, followed by affected files, API request/response changes, database changes, validation behavior, and verification results.
 
+## 2026-07-01 00:00:00 IST - Restrict PhonePe Confirmation Prompt to Matched Amount Cashier
+
+### Summary
+
+Stopped PhonePe confirmation-required websocket prompts from being sent on the enterprise-wide payments topic. PhonePe matching still selects active same-enterprise, same-amount payment requests, but the confirm/reject prompt is now delivered only to each matched `/topic/payment/{paymentId}` cashier window.
+
+### Affected Files
+
+- `src/main/java/com/acme/PayNotify/service/PaymentWebSocketService.java`
+- `src/test/java/com/acme/PayNotify/service/PaymentWebSocketServiceTest.java`
+- `CHANGE_REPORT.md`
+
+### Behavior Changes
+
+- `PHONEPE_PAYMENT_CONFIRMATION_REQUIRED` is no longer broadcast to `/topic/enterprise/{enterpriseCode}/payments`.
+- Cashiers whose active payment amount does not match the PhonePe notification should no longer receive the confirmation prompt through the enterprise feed.
+- Final payment status updates still use the existing payment, terminal, and enterprise topics.
+
+### Verification
+
+Ran:
+
+```bash
+JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 ./mvnw test
+```
+
+Result: `Tests run: 13, Failures: 0, Errors: 0, Skipped: 0`.
+
 ## 2026-06-30 14:35:00 IST - Disable Hibernate Auto Schema Update on Startup
 
 ### Summary
