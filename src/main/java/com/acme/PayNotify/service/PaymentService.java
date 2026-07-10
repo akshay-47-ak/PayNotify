@@ -341,16 +341,44 @@ public class PaymentService {
             return response;
         }
 
-        boolean amountMatched = false;
+        LocalDateTime now = LocalDateTime.now();
+        if (payment.getExpiresAt() != null && payment.getExpiresAt().isBefore(now)) {
+            payment.setStatus(PaymentStatus.EXPIRED.value());
+            payment.setUpdatedAt(now);
+            paymentRequestRepository.save(payment);
+            notificationLog.setStatus(PaymentStatus.PAYMENT_EXPIRED.value());
+            paymentNotificationLogRepository.save(notificationLog);
+            response.setMatched(false);
+            response.setStatus(PaymentStatus.PAYMENT_EXPIRED.value());
+            response.setPaymentId(payment.getPaymentId());
+            response.setTransactionRef(payment.getTransactionRef());
+            response.setExpectedAmount(payment.getAmount());
+            response.setReceivedAmount(amountStr);
+            response.setAmountMatched(false);
+            response.setMessage("Payment request is expired");
+            return response;
+        }
+
         if (receivedAmount != null && payment.getAmount() != null
                 && payment.getAmount().compareTo(receivedAmount) == 0) {
-            amountMatched = true;
+            response.setAmountMatched(true);
+        } else {
+            notificationLog.setStatus(PaymentStatus.AMOUNT_MISMATCH.value());
+            paymentNotificationLogRepository.save(notificationLog);
+            response.setMatched(false);
+            response.setStatus(PaymentStatus.AMOUNT_MISMATCH.value());
+            response.setPaymentId(payment.getPaymentId());
+            response.setTransactionRef(payment.getTransactionRef());
+            response.setExpectedAmount(payment.getAmount());
+            response.setReceivedAmount(amountStr);
+            response.setAmountMatched(false);
+            response.setMessage("Notification amount does not match payment amount");
+            return response;
         }
 
         payment.setStatus(PaymentStatus.PAID_AUTO_VERIFIED.value());
         payment.setUtr(utr);
         payment.setPayerName(payerName);
-        LocalDateTime now = LocalDateTime.now();
         payment.setPaidAt(now);
         payment.setUpdatedAt(now);
 
@@ -368,7 +396,6 @@ public class PaymentService {
         response.setPaymentId(payment.getPaymentId());
         response.setTransactionRef(payment.getTransactionRef());
         response.setExpectedAmount(payment.getAmount());
-        response.setAmountMatched(amountMatched);
         response.setMessage("Payment matched successfully");
 
         return response;

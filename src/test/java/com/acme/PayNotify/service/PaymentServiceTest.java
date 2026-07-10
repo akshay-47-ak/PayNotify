@@ -121,6 +121,70 @@ class PaymentServiceTest {
     }
 
     @Test
+    void googlePayNotificationDoesNotVerifyWhenAmountMismatches() {
+        PaymentRequest payment = waitingPayment();
+        payment.setTransactionRef("PADM-TXN-100");
+
+        PaymentNotificationRequest request = baseNotification("Google Pay", "com.google.android.apps.nbu.paisa.user");
+        request.setExtractedTxnId("PADM-TXN-100");
+        request.setAmount(new BigDecimal("400.00"));
+
+        when(deviceRegistrationService.getActiveDevice("ENT", "DEVICE-1")).thenReturn(terminal);
+        when(notificationParserService.parse(any())).thenReturn(parsed("400.00", "PADM-TXN-100", "Rahul"));
+        when(paymentNotificationLogRepository.findByDedupeHash(any())).thenReturn(Optional.empty());
+        when(paymentNotificationLogRepository.save(any())).thenAnswer(invocation -> {
+            PaymentNotificationLog log = invocation.getArgument(0);
+            if (log.getId() == null) {
+                log.setId(501L);
+            }
+            return log;
+        });
+        when(paymentRequestRepository.findTopByTransactionRefAndStatusInOrderByCreatedAtDesc(eq("PADM-TXN-100"), anyList()))
+                .thenReturn(Optional.of(payment));
+
+        PaymentNotificationResponse response = paymentService.processNotification(request);
+
+        assertTrue(!response.isMatched());
+        assertEquals("AMOUNT_MISMATCH", response.getStatus());
+        assertEquals("WAITING", payment.getStatus());
+        verify(paymentRequestRepository, never()).save(any());
+        verify(paymentWebSocketService, never()).publishPaymentUpdate(any(), any());
+    }
+
+    @Test
+    void googlePayNotificationExpiresOldPaymentBeforeAutoVerification() {
+        PaymentRequest payment = waitingPayment();
+        payment.setTransactionRef("PADM-TXN-100");
+        payment.setExpiresAt(LocalDateTime.now().minus(1, ChronoUnit.MINUTES));
+
+        PaymentNotificationRequest request = baseNotification("Google Pay", "com.google.android.apps.nbu.paisa.user");
+        request.setExtractedTxnId("PADM-TXN-100");
+        request.setAmount(new BigDecimal("500.00"));
+
+        when(deviceRegistrationService.getActiveDevice("ENT", "DEVICE-1")).thenReturn(terminal);
+        when(notificationParserService.parse(any())).thenReturn(parsed("500.00", "PADM-TXN-100", "Rahul"));
+        when(paymentNotificationLogRepository.findByDedupeHash(any())).thenReturn(Optional.empty());
+        when(paymentNotificationLogRepository.save(any())).thenAnswer(invocation -> {
+            PaymentNotificationLog log = invocation.getArgument(0);
+            if (log.getId() == null) {
+                log.setId(501L);
+            }
+            return log;
+        });
+        when(paymentRequestRepository.findTopByTransactionRefAndStatusInOrderByCreatedAtDesc(eq("PADM-TXN-100"), anyList()))
+                .thenReturn(Optional.of(payment));
+        when(paymentRequestRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PaymentNotificationResponse response = paymentService.processNotification(request);
+
+        assertTrue(!response.isMatched());
+        assertEquals("PAYMENT_EXPIRED", response.getStatus());
+        assertEquals("EXPIRED", payment.getStatus());
+        verify(paymentRequestRepository).save(payment);
+        verify(paymentWebSocketService, never()).publishPaymentUpdate(any(), any());
+    }
+
+    @Test
     void phonePeNotificationSingleMatchWaitsForCashierConfirmation() {
         PaymentRequest payment = waitingPayment();
 

@@ -6,7 +6,7 @@ This file is the running report for application changes. Add every new change at
 
 ### Summary
 
-Updated payment date-time fields to use Java `LocalDateTime`, moved cashier/branch/session assignment fully to the backend, centralized payment flow hardcoded strings into enums, and added FIFO queue handling for same-enterprise same-amount PhonePe notifications.
+Updated payment date-time fields to use Java `LocalDateTime`, moved cashier/branch/session assignment fully to the backend, centralized payment flow hardcoded strings into enums, added FIFO queue handling for same-enterprise same-amount PhonePe notifications, and tightened Google Pay auto-verification.
 
 ### Affected Files
 
@@ -44,6 +44,8 @@ Updated payment date-time fields to use Java `LocalDateTime`, moved cashier/bran
 - PhonePe notifications for the same enterprise and amount now follow first-come-first-served behavior.
 - If a same-amount PhonePe confirmation is already open, the next PhonePe notification is stored as `PHONEPE_QUEUED` instead of overwriting the current candidate windows.
 - After the current PhonePe confirmation session is completed, remaining same-amount waiting payment windows receive the oldest queued PhonePe notification.
+- Google Pay auto-verification now requires the notification amount to exactly match the payment amount.
+- Google Pay notifications no longer auto-verify expired payment requests; expired matched attempts are moved to `EXPIRED` and the notification returns `PAYMENT_EXPIRED`.
 
 ### API Changes
 
