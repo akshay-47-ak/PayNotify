@@ -13,6 +13,8 @@ import com.acme.PayNotify.entity.PaymentRequest;
 import com.acme.PayNotify.entity.UserDevice;
 import com.acme.PayNotify.repository.PaymentNotificationLogRepository;
 import com.acme.PayNotify.repository.PaymentRequestRepository;
+import com.acme.PayNotify.type.PaymentApp;
+import com.acme.PayNotify.type.PaymentStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,32 +28,24 @@ import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
-import java.util.Arrays;
+import java.util.Locale;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Service
 public class PaymentService {
 
     private static final Logger log = LoggerFactory.getLogger(PaymentService.class);
 
-    private static final String STATUS_PENDING = "PENDING";
-    private static final String STATUS_WAITING = "WAITING";
-    private static final String STATUS_PAID_AUTO_VERIFIED = "PAID_AUTO_VERIFIED";
-    private static final String STATUS_PHONEPE_WAITING_CONFIRMATION = "PHONEPE_MATCHED_WAITING_CONFIRMATION";
-    private static final String STATUS_PAID_CONFIRMED_BY_CASHIER = "PAID_CONFIRMED_BY_CASHIER";
-    private static final String STATUS_UNMATCHED_NOTIFICATION = "UNMATCHED_NOTIFICATION";
-    private static final String STATUS_AMBIGUOUS_NOTIFICATION = "AMBIGUOUS_NOTIFICATION";
-    private static final String STATUS_EXPIRED = "EXPIRED";
-    private static final String STATUS_REJECTED_BY_CASHIER = "REJECTED_BY_CASHIER";
-    private static final String STATUS_DUPLICATE = "DUPLICATE";
-    private static final String STATUS_MATCHED_WAITING_CONFIRMATION = "MATCHED_WAITING_CONFIRMATION";
-    private static final String STATUS_USED_CONFIRMED = "USED_CONFIRMED";
-
     private static final List<String> ACTIVE_PAYMENT_STATUSES =
-            Arrays.asList(STATUS_WAITING, STATUS_PENDING, STATUS_PHONEPE_WAITING_CONFIRMATION);
+            List.of(
+                    PaymentStatus.WAITING.value(),
+                    PaymentStatus.PENDING.value(),
+                    PaymentStatus.PHONEPE_MATCHED_WAITING_CONFIRMATION.value()
+            );
     private static final List<String> WAITING_PAYMENT_STATUSES =
-            Arrays.asList(STATUS_WAITING, STATUS_PENDING);
+            List.of(PaymentStatus.WAITING.value(), PaymentStatus.PENDING.value());
 
     @Autowired
     private EnterpriseService enterpriseService;
@@ -105,7 +99,7 @@ public class PaymentService {
         String sourceApp = request.getSourceApp();
 
         if (sourceApp == null || sourceApp.trim().isEmpty()) {
-            sourceApp = "UNKNOWN";
+            sourceApp = PaymentApp.UNKNOWN.value();
         }
         sourceApp = sourceApp.trim().toUpperCase();
 
@@ -150,14 +144,14 @@ public class PaymentService {
         payment.setAmount(request.getAmount());
         payment.setNote(finalNote);
         payment.setUpiUrl(upiUrl);
-        payment.setStatus(STATUS_WAITING);
+        payment.setStatus(PaymentStatus.WAITING.value());
         payment.setCreatedAt(now);
         payment.setUpdatedAt(now);
         payment.setExpiresAt(now.plus(qrExpiryMinutes, ChronoUnit.MINUTES));
         payment.setSourceApp(sourceApp);
-        payment.setCashierId(request.getCashierId());
-        payment.setCashierSessionId(request.getCashierSessionId());
-        payment.setBranchId(request.getBranchId());
+        payment.setCashierId(generateCashierId(terminalDevice));
+        payment.setCashierSessionId(generateCashierSessionId());
+        payment.setBranchId(generateBranchId(enterprise));
         payment.setDocumentOwnCode(request.getDocumentOwnCode());
         payment.setCompCode(1);
         payment.setTenantCode(1);
@@ -285,7 +279,7 @@ public class PaymentService {
             log.info("Duplicate payment notification ignored. notificationId={}, terminalId={}, app={}",
                     existingLog.getId(), existingLog.getTerminalId(), appType);
             response.setMatched(existingLog.getMatchedPaymentAttemptId() != null);
-            response.setStatus(STATUS_DUPLICATE);
+            response.setStatus(PaymentStatus.DUPLICATE.value());
             response.setPaymentId(null);
             response.setMessage("Duplicate notification ignored");
             return response;
@@ -302,30 +296,30 @@ public class PaymentService {
                 payerName,
                 notificationTime,
                 dedupeHash,
-                "RECEIVED"
+                PaymentStatus.RECEIVED.value()
         );
 
         log.info("Payment notification received. notificationId={}, terminalId={}, app={}, hasTxnRef={}",
                 notificationLog.getId(), notificationLog.getTerminalId(), appType, finalTransactionRef != null);
 
-        if ("PHONEPE".equals(appType)) {
+        if (PaymentApp.PHONEPE.matches(appType)) {
             return processPhonePeNotification(notificationLog, response);
         }
 
-        if (!"GOOGLE_PAY".equals(appType) && finalTransactionRef == null) {
-            notificationLog.setStatus(STATUS_UNMATCHED_NOTIFICATION);
+        if (!PaymentApp.GOOGLE_PAY.matches(appType) && finalTransactionRef == null) {
+            notificationLog.setStatus(PaymentStatus.UNMATCHED_NOTIFICATION.value());
             paymentNotificationLogRepository.save(notificationLog);
             response.setMatched(false);
-            response.setStatus(STATUS_UNMATCHED_NOTIFICATION);
+            response.setStatus(PaymentStatus.UNMATCHED_NOTIFICATION.value());
             response.setMessage("Unsupported or unmatched notification");
             return response;
         }
 
         if (finalTransactionRef == null || finalTransactionRef.trim().isEmpty()) {
-            notificationLog.setStatus("TRANSACTION_REF_NOT_FOUND");
+            notificationLog.setStatus(PaymentStatus.TRANSACTION_REF_NOT_FOUND.value());
             paymentNotificationLogRepository.save(notificationLog);
             response.setMatched(false);
-            response.setStatus("TRANSACTION_REF_NOT_FOUND");
+            response.setStatus(PaymentStatus.TRANSACTION_REF_NOT_FOUND.value());
             response.setMessage("Transaction reference not found in notification");
             return response;
         }
@@ -338,11 +332,11 @@ public class PaymentService {
         notificationLog.setDocumentOwnCode(documentOwnCode);
 
         if (payment == null) {
-            notificationLog.setStatus(STATUS_UNMATCHED_NOTIFICATION);
+            notificationLog.setStatus(PaymentStatus.UNMATCHED_NOTIFICATION.value());
             paymentNotificationLogRepository.save(notificationLog);
             log.info("Google Pay auto verification failed. transactionRef={}", finalTransactionRef);
             response.setMatched(false);
-            response.setStatus("PENDING_PAYMENT_NOT_FOUND");
+            response.setStatus(PaymentStatus.PENDING_PAYMENT_NOT_FOUND.value());
             response.setMessage("Pending payment not found for transaction reference");
             return response;
         }
@@ -353,7 +347,7 @@ public class PaymentService {
             amountMatched = true;
         }
 
-        payment.setStatus(STATUS_PAID_AUTO_VERIFIED);
+        payment.setStatus(PaymentStatus.PAID_AUTO_VERIFIED.value());
         payment.setUtr(utr);
         payment.setPayerName(payerName);
         LocalDateTime now = LocalDateTime.now();
@@ -361,7 +355,7 @@ public class PaymentService {
         payment.setUpdatedAt(now);
 
         payment = paymentRequestRepository.save(payment);
-        notificationLog.setStatus(STATUS_USED_CONFIRMED);
+        notificationLog.setStatus(PaymentStatus.USED_CONFIRMED.value());
         notificationLog.setMatchedPaymentAttemptId(payment.getId());
         paymentNotificationLogRepository.save(notificationLog);
 
@@ -370,7 +364,7 @@ public class PaymentService {
                 payment.getPaymentId(), notificationLog.getId());
 
         response.setMatched(true);
-        response.setStatus(STATUS_PAID_AUTO_VERIFIED);
+        response.setStatus(PaymentStatus.PAID_AUTO_VERIFIED.value());
         response.setPaymentId(payment.getPaymentId());
         response.setTransactionRef(payment.getTransactionRef());
         response.setExpectedAmount(payment.getAmount());
@@ -386,11 +380,11 @@ public class PaymentService {
 
         if (notification.getTerminalId() == null || notification.getTerminalId().trim().isEmpty()
                 || notification.getAmount() == null) {
-            notification.setStatus(STATUS_UNMATCHED_NOTIFICATION);
+            notification.setStatus(PaymentStatus.UNMATCHED_NOTIFICATION.value());
             paymentNotificationLogRepository.save(notification);
             log.info("PhonePe unmatched. notificationId={}, reason=missing_terminal_or_amount", notification.getId());
             response.setMatched(false);
-            response.setStatus(STATUS_UNMATCHED_NOTIFICATION);
+            response.setStatus(PaymentStatus.UNMATCHED_NOTIFICATION.value());
             response.setMessage("PhonePe notification missing terminal or amount");
             return response;
         }
@@ -403,7 +397,7 @@ public class PaymentService {
         List<PaymentRequest> matches = paymentRequestRepository.findActiveAttemptForPhonePe(
                 notification.getTerminalId(),
                 notification.getAmount(),
-                STATUS_WAITING,
+                PaymentStatus.WAITING.value(),
                 notificationTime,
                 graceStart
         );
@@ -412,7 +406,7 @@ public class PaymentService {
             matches = paymentRequestRepository.findActiveAttemptForPhonePe(
                     notification.getTerminalId(),
                     notification.getAmount(),
-                    STATUS_PENDING,
+                    PaymentStatus.PENDING.value(),
                     notificationTime,
                     graceStart
             );
@@ -431,12 +425,12 @@ public class PaymentService {
         }
 
         if (matches.isEmpty()) {
-            notification.setStatus(STATUS_UNMATCHED_NOTIFICATION);
+            notification.setStatus(PaymentStatus.UNMATCHED_NOTIFICATION.value());
             paymentNotificationLogRepository.save(notification);
             log.info("PhonePe unmatched. notificationId={}, terminalId={}, amount={}",
                     notification.getId(), notification.getTerminalId(), notification.getAmount());
             response.setMatched(false);
-            response.setStatus(STATUS_UNMATCHED_NOTIFICATION);
+            response.setStatus(PaymentStatus.UNMATCHED_NOTIFICATION.value());
             response.setMessage("No active QR found for PhonePe notification");
             return response;
         }
@@ -444,14 +438,14 @@ public class PaymentService {
         LocalDateTime now = LocalDateTime.now();
         PaymentRequest responsePayment = matches.get(0);
         for (PaymentRequest payment : matches) {
-            payment.setStatus(STATUS_PHONEPE_WAITING_CONFIRMATION);
+            payment.setStatus(PaymentStatus.PHONEPE_MATCHED_WAITING_CONFIRMATION.value());
             payment.setMatchedNotificationId(notification.getId());
             payment.setPayerName(notification.getPayerName());
             payment.setUpdatedAt(now);
             paymentRequestRepository.save(payment);
         }
 
-        notification.setStatus(STATUS_MATCHED_WAITING_CONFIRMATION);
+        notification.setStatus(PaymentStatus.MATCHED_WAITING_CONFIRMATION.value());
         notification.setMatchedPaymentAttemptId(null);
         paymentNotificationLogRepository.save(notification);
 
@@ -460,7 +454,7 @@ public class PaymentService {
                 notification.getId(), matches.size());
 
         response.setMatched(true);
-        response.setStatus(STATUS_PHONEPE_WAITING_CONFIRMATION);
+        response.setStatus(PaymentStatus.PHONEPE_MATCHED_WAITING_CONFIRMATION.value());
         response.setPaymentId(responsePayment.getPaymentId());
         response.setNotificationId(notification.getId());
         response.setExpectedAmount(responsePayment.getAmount());
@@ -471,8 +465,8 @@ public class PaymentService {
 
     @Transactional
     public PaymentNotificationResponse confirmPhonePePayment(String paymentAttemptId, PhonePeConfirmRequest request) {
-        if (request == null || request.getCashierId() == null || request.getNotificationId() == null) {
-            throw new RuntimeException("Cashier ID and notification ID are required");
+        if (request == null || request.getNotificationId() == null) {
+            throw new RuntimeException("Notification ID is required");
         }
 
         PaymentRequest payment = findPaymentForUpdate(paymentAttemptId);
@@ -480,14 +474,14 @@ public class PaymentService {
                 .findByIdForUpdate(request.getNotificationId())
                 .orElseThrow(() -> new RuntimeException("Notification not found"));
 
-        if (!STATUS_PHONEPE_WAITING_CONFIRMATION.equals(payment.getStatus())) {
+        if (!PaymentStatus.PHONEPE_MATCHED_WAITING_CONFIRMATION.matches(payment.getStatus())) {
             throw new RuntimeException("Payment is not waiting for PhonePe confirmation");
         }
         if (payment.getMatchedNotificationId() == null
                 || !payment.getMatchedNotificationId().equals(request.getNotificationId())) {
             throw new RuntimeException("Notification does not match this payment request");
         }
-        if (STATUS_USED_CONFIRMED.equals(notification.getStatus())) {
+        if (PaymentStatus.USED_CONFIRMED.matches(notification.getStatus())) {
             throw new RuntimeException("Notification is already used");
         }
         if (notification.getMatchedPaymentAttemptId() != null
@@ -503,14 +497,14 @@ public class PaymentService {
         }
 
         LocalDateTime now = LocalDateTime.now();
-        payment.setStatus(STATUS_PAID_CONFIRMED_BY_CASHIER);
-        payment.setConfirmedBy(request.getCashierId());
+        payment.setStatus(PaymentStatus.PAID_CONFIRMED_BY_CASHIER.value());
+        payment.setConfirmedBy(payment.getCashierId());
         payment.setConfirmedAt(now);
         payment.setPaidAt(now);
         payment.setUpdatedAt(now);
         paymentRequestRepository.save(payment);
 
-        notification.setStatus(STATUS_USED_CONFIRMED);
+        notification.setStatus(PaymentStatus.USED_CONFIRMED.value());
         notification.setMatchedPaymentAttemptId(payment.getId());
         paymentNotificationLogRepository.save(notification);
 
@@ -518,11 +512,11 @@ public class PaymentService {
 
         paymentWebSocketService.publishPaymentUpdate(payment, "PhonePe payment confirmed successfully.");
         log.info("Cashier confirmed PhonePe payment. paymentId={}, notificationId={}, cashierId={}",
-                payment.getPaymentId(), notification.getId(), request.getCashierId());
+                payment.getPaymentId(), notification.getId(), payment.getCashierId());
 
         PaymentNotificationResponse response = new PaymentNotificationResponse();
         response.setMatched(true);
-        response.setStatus(STATUS_PAID_CONFIRMED_BY_CASHIER);
+        response.setStatus(PaymentStatus.PAID_CONFIRMED_BY_CASHIER.value());
         response.setPaymentId(payment.getPaymentId());
         response.setTransactionRef(payment.getTransactionRef());
         response.setExpectedAmount(payment.getAmount());
@@ -536,8 +530,8 @@ public class PaymentService {
 
     @Transactional
     public PaymentNotificationResponse rejectPhonePePayment(String paymentAttemptId, PhonePeRejectRequest request) {
-        if (request == null || request.getCashierId() == null || request.getNotificationId() == null) {
-            throw new RuntimeException("Cashier ID and notification ID are required");
+        if (request == null || request.getNotificationId() == null) {
+            throw new RuntimeException("Notification ID is required");
         }
 
         PaymentRequest payment = findPaymentForUpdate(paymentAttemptId);
@@ -545,7 +539,7 @@ public class PaymentService {
                 .findByIdForUpdate(request.getNotificationId())
                 .orElseThrow(() -> new RuntimeException("Notification not found"));
 
-        if (!STATUS_PHONEPE_WAITING_CONFIRMATION.equals(payment.getStatus())) {
+        if (!PaymentStatus.PHONEPE_MATCHED_WAITING_CONFIRMATION.matches(payment.getStatus())) {
             throw new RuntimeException("Payment is not waiting for PhonePe confirmation");
         }
         if (payment.getMatchedNotificationId() == null
@@ -555,32 +549,35 @@ public class PaymentService {
 
         LocalDateTime now = LocalDateTime.now();
         if (payment.getExpiresAt() != null && payment.getExpiresAt().isBefore(now)) {
-            payment.setStatus(STATUS_EXPIRED);
+            payment.setStatus(PaymentStatus.EXPIRED.value());
         } else {
-            payment.setStatus(STATUS_WAITING);
+            payment.setStatus(PaymentStatus.WAITING.value());
         }
         payment.setMatchedNotificationId(null);
         payment.setUpdatedAt(now);
         paymentRequestRepository.save(payment);
 
         List<PaymentRequest> remainingCandidates = paymentRequestRepository
-                .findByMatchedNotificationIdAndStatus(notification.getId(), STATUS_PHONEPE_WAITING_CONFIRMATION);
+                .findByMatchedNotificationIdAndStatus(
+                        notification.getId(),
+                        PaymentStatus.PHONEPE_MATCHED_WAITING_CONFIRMATION.value()
+                );
         if (remainingCandidates.isEmpty()) {
-            notification.setStatus(STATUS_REJECTED_BY_CASHIER);
+            notification.setStatus(PaymentStatus.REJECTED_BY_CASHIER.value());
             notification.setMatchedPaymentAttemptId(payment.getId());
         } else {
-            notification.setStatus(STATUS_MATCHED_WAITING_CONFIRMATION);
+            notification.setStatus(PaymentStatus.MATCHED_WAITING_CONFIRMATION.value());
             notification.setMatchedPaymentAttemptId(null);
         }
         paymentNotificationLogRepository.save(notification);
 
         paymentWebSocketService.publishPaymentUpdate(payment, "PhonePe payment rejected for this payment request.");
         log.info("Cashier rejected PhonePe payment. paymentId={}, notificationId={}, cashierId={}, reason={}",
-                payment.getPaymentId(), notification.getId(), request.getCashierId(), request.getReason());
+                payment.getPaymentId(), notification.getId(), payment.getCashierId(), request.getReason());
 
         PaymentNotificationResponse response = new PaymentNotificationResponse();
         response.setMatched(false);
-        response.setStatus(STATUS_REJECTED_BY_CASHIER);
+        response.setStatus(PaymentStatus.REJECTED_BY_CASHIER.value());
         response.setPaymentId(payment.getPaymentId());
         response.setTransactionRef(payment.getTransactionRef());
         response.setExpectedAmount(payment.getAmount());
@@ -592,7 +589,10 @@ public class PaymentService {
 
     private void releaseOtherPhonePeCandidates(PaymentRequest confirmedPayment, Long notificationId, LocalDateTime now) {
         List<PaymentRequest> candidates = paymentRequestRepository
-                .findByMatchedNotificationIdAndStatus(notificationId, STATUS_PHONEPE_WAITING_CONFIRMATION);
+                .findByMatchedNotificationIdAndStatus(
+                        notificationId,
+                        PaymentStatus.PHONEPE_MATCHED_WAITING_CONFIRMATION.value()
+                );
 
         for (PaymentRequest candidate : candidates) {
             if (candidate.getId() != null && candidate.getId().equals(confirmedPayment.getId())) {
@@ -600,9 +600,9 @@ public class PaymentService {
             }
 
             if (candidate.getExpiresAt() != null && candidate.getExpiresAt().isBefore(now)) {
-                candidate.setStatus(STATUS_EXPIRED);
+                candidate.setStatus(PaymentStatus.EXPIRED.value());
             } else {
-                candidate.setStatus(STATUS_WAITING);
+                candidate.setStatus(PaymentStatus.WAITING.value());
             }
             candidate.setMatchedNotificationId(null);
             candidate.setUpdatedAt(now);
@@ -616,13 +616,13 @@ public class PaymentService {
             return null;
         }
 
-        if (STATUS_PHONEPE_WAITING_CONFIRMATION.equals(payment.getStatus())) {
+        if (PaymentStatus.PHONEPE_MATCHED_WAITING_CONFIRMATION.matches(payment.getStatus())) {
             return "PhonePe payment received. Please confirm after checking customer.";
         }
-        if (STATUS_PAID_CONFIRMED_BY_CASHIER.equals(payment.getStatus())) {
+        if (PaymentStatus.PAID_CONFIRMED_BY_CASHIER.matches(payment.getStatus())) {
             return "PhonePe payment confirmed successfully.";
         }
-        if (STATUS_PAID_AUTO_VERIFIED.equals(payment.getStatus())) {
+        if (PaymentStatus.PAID_AUTO_VERIFIED.matches(payment.getStatus())) {
             return "Payment received successfully.";
         }
         return null;
@@ -673,6 +673,31 @@ public class PaymentService {
         return "PADM-TXN-" + (System.currentTimeMillis() % 1000000);
     }
 
+    private Long generateCashierId(UserDevice terminalDevice) {
+        if (terminalDevice.getId() != null) {
+            return terminalDevice.getId();
+        }
+        return positiveHash(terminalDevice.getTerminalId());
+    }
+
+    private String generateCashierSessionId() {
+        return "CS-" + UUID.randomUUID().toString().replace("-", "").toUpperCase(Locale.ROOT);
+    }
+
+    private Long generateBranchId(EnterpriseMaster enterprise) {
+        if (enterprise.getDepartmentCode() != null) {
+            return enterprise.getDepartmentCode().longValue();
+        }
+        if (enterprise.getId() != null) {
+            return enterprise.getId();
+        }
+        return positiveHash(enterprise.getEnterpriseCode());
+    }
+
+    private Long positiveHash(String value) {
+        return value == null ? 0L : Integer.toUnsignedLong(value.hashCode());
+    }
+
     private String firstNonBlank(String... values) {
         if (values == null) {
             return null;
@@ -711,8 +736,8 @@ public class PaymentService {
 
         for (PaymentRequest payment : activePayments) {
             if (payment.getExpiresAt() != null && payment.getExpiresAt().isBefore(now)
-                    && !STATUS_PHONEPE_WAITING_CONFIRMATION.equals(payment.getStatus())) {
-                payment.setStatus(STATUS_EXPIRED);
+                    && !PaymentStatus.PHONEPE_MATCHED_WAITING_CONFIRMATION.matches(payment.getStatus())) {
+                payment.setStatus(PaymentStatus.EXPIRED.value());
                 payment.setUpdatedAt(now);
                 paymentRequestRepository.save(payment);
             }
@@ -722,13 +747,13 @@ public class PaymentService {
     private String detectPaymentApp(String appName, String packageName) {
         String value = ((appName != null ? appName : "") + " " + (packageName != null ? packageName : "")).toLowerCase();
         if (value.contains("phonepe") || value.contains("com.phonepe.app")) {
-            return "PHONEPE";
+            return PaymentApp.PHONEPE.value();
         }
         if (value.contains("google pay") || value.contains("gpay")
                 || value.contains("com.google.android.apps.nbu.paisa.user")) {
-            return "GOOGLE_PAY";
+            return PaymentApp.GOOGLE_PAY.value();
         }
-        return "UNKNOWN";
+        return PaymentApp.UNKNOWN.value();
     }
 
     private String buildDedupeHash(

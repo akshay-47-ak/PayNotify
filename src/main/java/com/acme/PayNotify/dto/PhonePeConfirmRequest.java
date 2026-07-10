@@ -9,6 +9,5 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class PhonePeConfirmRequest {
 
-    private Long cashierId;
     private Long notificationId;
 }

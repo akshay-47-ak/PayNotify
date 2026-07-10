@@ -4,6 +4,8 @@ import com.acme.PayNotify.dto.PaymentStatusEvent;
 import com.acme.PayNotify.dto.TerminalQrEvent;
 import com.acme.PayNotify.entity.EnterpriseMaster;
 import com.acme.PayNotify.entity.PaymentRequest;
+import com.acme.PayNotify.type.PaymentEventType;
+import com.acme.PayNotify.type.PaymentStatus;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -12,13 +14,6 @@ import java.util.List;
 
 @Service
 public class PaymentWebSocketService {
-
-    private static final String STATUS_PAID_AUTO_VERIFIED = "PAID_AUTO_VERIFIED";
-    private static final String STATUS_PAID_CONFIRMED_BY_CASHIER = "PAID_CONFIRMED_BY_CASHIER";
-    private static final String STATUS_PHONEPE_WAITING_CONFIRMATION = "PHONEPE_MATCHED_WAITING_CONFIRMATION";
-    private static final String STATUS_WAITING = "WAITING";
-    private static final String STATUS_EXPIRED = "EXPIRED";
-    private static final String STATUS_REJECTED_BY_CASHIER = "REJECTED_BY_CASHIER";
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
@@ -68,7 +63,7 @@ public class PaymentWebSocketService {
         }
 
         PaymentStatusEvent event = buildEvent(payment, "PhonePe payment received. Please confirm after checking customer.");
-        event.setEventType("PHONEPE_PAYMENT_CONFIRMATION_REQUIRED");
+        event.setEventType(PaymentEventType.PHONEPE_PAYMENT_CONFIRMATION_REQUIRED.value());
         event.setNotificationId(notificationId);
         event.setPayerName(payerName);
 
@@ -112,15 +107,18 @@ public class PaymentWebSocketService {
     }
 
     private String resolvePaymentUpdateEventType(String status) {
-        if (STATUS_PAID_AUTO_VERIFIED.equals(status) || STATUS_PAID_CONFIRMED_BY_CASHIER.equals(status)) {
-            return "PAYMENT_SUCCESS";
+        if (PaymentStatus.PAID_AUTO_VERIFIED.matches(status)
+                || PaymentStatus.PAID_CONFIRMED_BY_CASHIER.matches(status)) {
+            return PaymentEventType.PAYMENT_SUCCESS.value();
         }
-        if (STATUS_PHONEPE_WAITING_CONFIRMATION.equals(status)) {
-            return "PHONEPE_PAYMENT_CONFIRMATION_REQUIRED";
+        if (PaymentStatus.PHONEPE_MATCHED_WAITING_CONFIRMATION.matches(status)) {
+            return PaymentEventType.PHONEPE_PAYMENT_CONFIRMATION_REQUIRED.value();
         }
-        if (STATUS_WAITING.equals(status) || STATUS_EXPIRED.equals(status) || STATUS_REJECTED_BY_CASHIER.equals(status)) {
-            return "PAYMENT_STATUS_UPDATED";
+        if (PaymentStatus.WAITING.matches(status)
+                || PaymentStatus.EXPIRED.matches(status)
+                || PaymentStatus.REJECTED_BY_CASHIER.matches(status)) {
+            return PaymentEventType.PAYMENT_STATUS_UPDATED.value();
         }
-        return "PAYMENT_STATUS_UPDATED";
+        return PaymentEventType.PAYMENT_STATUS_UPDATED.value();
     }
 }

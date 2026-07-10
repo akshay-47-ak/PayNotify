@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -221,7 +222,7 @@ class PaymentServiceTest {
         when(paymentRequestRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(paymentNotificationLogRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        PhonePeRejectRequest request = new PhonePeRejectRequest(10L, 501L, "Not my payment");
+        PhonePeRejectRequest request = new PhonePeRejectRequest(501L, "Not my payment");
 
         PaymentNotificationResponse response = paymentService.rejectPhonePePayment("PAY-1", request);
 
@@ -253,7 +254,7 @@ class PaymentServiceTest {
         when(paymentRequestRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(paymentNotificationLogRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        PhonePeConfirmRequest request = new PhonePeConfirmRequest(20L, 501L);
+        PhonePeConfirmRequest request = new PhonePeConfirmRequest(501L);
 
         PaymentNotificationResponse response = paymentService.confirmPhonePePayment("PAY-1", request);
 
@@ -298,7 +299,7 @@ class PaymentServiceTest {
         when(paymentRequestRepository.findByIdForUpdate(payment.getId())).thenReturn(Optional.of(payment));
         when(paymentNotificationLogRepository.findByIdForUpdate(501L)).thenReturn(Optional.of(notification));
 
-        PhonePeConfirmRequest request = new PhonePeConfirmRequest(10L, 501L);
+        PhonePeConfirmRequest request = new PhonePeConfirmRequest(501L);
 
         RuntimeException exception = assertThrows(
                 RuntimeException.class,
@@ -328,6 +329,35 @@ class PaymentServiceTest {
         verify(paymentRequestRepository, never()).save(any());
     }
 
+    @Test
+    void generateQrAssignsBackendCashierBranchAndSession() throws Exception {
+        GenerateQrRequest request = new GenerateQrRequest();
+        request.setEnterpriseCode("ENT");
+        request.setTerminalId("TERM-1");
+        request.setMerchantName("Merchant");
+        request.setUpiId("merchant@upi");
+        request.setAmount(new BigDecimal("500.00"));
+
+        when(enterpriseService.getValidatedEnterprise("ENT")).thenReturn(enterprise);
+        when(deviceRegistrationService.getActiveTerminal("ENT", "TERM-1")).thenReturn(terminal);
+        when(paymentRequestRepository.findByTerminalIdAndStatusIn(eq("TERM-1"), anyList()))
+                .thenReturn(Collections.emptyList());
+        when(upiUrlService.generateUpiUrl(any(), any(), any(), any(), any())).thenReturn("upi://pay");
+        when(qrCodeService.generateQrBase64("upi://pay", 300, 300)).thenReturn("qr");
+        when(paymentRequestRepository.save(any())).thenAnswer(invocation -> {
+            PaymentRequest payment = invocation.getArgument(0);
+            assertEquals(terminal.getId(), payment.getCashierId());
+            assertEquals(enterprise.getId(), payment.getBranchId());
+            assertNotNull(payment.getCashierSessionId());
+            assertTrue(payment.getCashierSessionId().startsWith("CS-"));
+            return payment;
+        });
+
+        paymentService.generateQr(request);
+
+        verify(paymentWebSocketService).publishQrToTerminal(any(PaymentRequest.class), eq("qr"), eq("QR generated successfully"));
+    }
+
     private PaymentNotificationRequest baseNotification(String appName, String packageName) {
         PaymentNotificationRequest request = new PaymentNotificationRequest();
         request.setEnterpriseCode("ENT");
@@ -351,6 +381,7 @@ class PaymentServiceTest {
         payment.setTransactionRef("PADM-TXN-100");
         payment.setAmount(new BigDecimal("500.00"));
         payment.setStatus("WAITING");
+        payment.setCashierId(10L);
         payment.setCreatedAt(LocalDateTime.now().minus(1, ChronoUnit.MINUTES));
         payment.setUpdatedAt(LocalDateTime.now().minus(1, ChronoUnit.MINUTES));
         payment.setExpiresAt(LocalDateTime.now().plus(15, ChronoUnit.MINUTES));
