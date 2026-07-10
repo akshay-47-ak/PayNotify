@@ -38,6 +38,12 @@ public interface PaymentRequestRepository extends JpaRepository<PaymentRequest, 
 
     List<PaymentRequest> findByMatchedNotificationIdAndStatus(Long matchedNotificationId, String status);
 
+    List<PaymentRequest> findByEnterpriseAndAmountAndStatus(
+            EnterpriseMaster enterprise,
+            BigDecimal amount,
+            String status
+    );
+
     @Query("select p from PaymentRequest p "
             + "where p.enterprise = :enterprise "
             + "and p.amount = :amount "

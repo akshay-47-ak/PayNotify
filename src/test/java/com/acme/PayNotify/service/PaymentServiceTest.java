@@ -198,6 +198,46 @@ class PaymentServiceTest {
     }
 
     @Test
+    void phonePeNotificationQueuesWhenSameAmountConfirmationAlreadyOpen() {
+        PaymentRequest blockedPayment = waitingPayment();
+        blockedPayment.setStatus("PHONEPE_MATCHED_WAITING_CONFIRMATION");
+        blockedPayment.setMatchedNotificationId(501L);
+
+        PaymentNotificationRequest request = baseNotification("PhonePe", "com.phonepe.app");
+        request.setAmount(new BigDecimal("500.00"));
+        request.setPayerName("Second Payer");
+
+        when(deviceRegistrationService.getActiveDevice("ENT", "DEVICE-1")).thenReturn(terminal);
+        when(notificationParserService.parse(any())).thenReturn(parsed("500.00", null, "Second Payer"));
+        when(paymentNotificationLogRepository.findByDedupeHash(any())).thenReturn(Optional.empty());
+        when(paymentNotificationLogRepository.save(any())).thenAnswer(invocation -> {
+            PaymentNotificationLog log = invocation.getArgument(0);
+            if (log.getId() == null) {
+                log.setId(502L);
+            }
+            return log;
+        });
+        when(paymentRequestRepository.findActiveAttemptForPhonePe(
+                eq("TERM-1"), eq(new BigDecimal("500.00")), eq("WAITING"), any(), any()
+        )).thenReturn(Collections.emptyList());
+        when(paymentRequestRepository.findActiveAttemptForPhonePe(
+                eq("TERM-1"), eq(new BigDecimal("500.00")), eq("PENDING"), any(), any()
+        )).thenReturn(Collections.emptyList());
+        when(paymentRequestRepository.findActiveEnterpriseAttemptsForPhonePe(
+                eq(enterprise), eq(new BigDecimal("500.00")), anyList(), any(), any()
+        )).thenReturn(Collections.emptyList());
+        when(paymentRequestRepository.findByEnterpriseAndAmountAndStatus(
+                enterprise, new BigDecimal("500.00"), "PHONEPE_MATCHED_WAITING_CONFIRMATION"
+        )).thenReturn(Collections.singletonList(blockedPayment));
+
+        PaymentNotificationResponse response = paymentService.processNotification(request);
+
+        assertEquals("PHONEPE_QUEUED", response.getStatus());
+        assertEquals(502L, response.getNotificationId());
+        verify(paymentWebSocketService, never()).publishPhonePeConfirmationRequired(anyList(), eq(502L), any());
+    }
+
+    @Test
     void phonePeRejectOnlyRemovesThatPaymentWhenOtherCandidatesRemain() {
         PaymentRequest rejectedPayment = waitingPayment();
         rejectedPayment.setStatus("PHONEPE_MATCHED_WAITING_CONFIRMATION");
@@ -262,6 +302,59 @@ class PaymentServiceTest {
         assertEquals("PAID_CONFIRMED_BY_CASHIER", response.getStatus());
         assertEquals("PAID_CONFIRMED_BY_CASHIER", payment.getStatus());
         assertEquals(payment.getId(), notification.getMatchedPaymentAttemptId());
+    }
+
+    @Test
+    void phonePeConfirmAssignsNextQueuedNotificationToReleasedSameAmountPayment() {
+        PaymentRequest confirmedPayment = waitingPayment();
+        confirmedPayment.setStatus("PHONEPE_MATCHED_WAITING_CONFIRMATION");
+        confirmedPayment.setMatchedNotificationId(501L);
+
+        PaymentRequest releasedPayment = waitingPayment();
+        releasedPayment.setId(2L);
+        releasedPayment.setPaymentId("PAY-2");
+        releasedPayment.setStatus("PHONEPE_MATCHED_WAITING_CONFIRMATION");
+        releasedPayment.setMatchedNotificationId(501L);
+
+        PaymentNotificationLog currentNotification = new PaymentNotificationLog();
+        currentNotification.setId(501L);
+        currentNotification.setEnterprise(enterprise);
+        currentNotification.setStatus("MATCHED_WAITING_CONFIRMATION");
+        currentNotification.setAmount(new BigDecimal("500.00"));
+
+        PaymentNotificationLog queuedNotification = new PaymentNotificationLog();
+        queuedNotification.setId(502L);
+        queuedNotification.setEnterprise(enterprise);
+        queuedNotification.setAppName("PHONEPE");
+        queuedNotification.setStatus("PHONEPE_QUEUED");
+        queuedNotification.setAmount(new BigDecimal("500.00"));
+        queuedNotification.setPayerName("Second Payer");
+        queuedNotification.setNotificationReceivedAt(LocalDateTime.now());
+
+        when(paymentRequestRepository.findByPaymentId("PAY-1")).thenReturn(Optional.of(confirmedPayment));
+        when(paymentRequestRepository.findByIdForUpdate(confirmedPayment.getId())).thenReturn(Optional.of(confirmedPayment));
+        when(paymentNotificationLogRepository.findByIdForUpdate(501L)).thenReturn(Optional.of(currentNotification));
+        when(paymentRequestRepository.findByMatchedNotificationIdAndStatus(501L, "PHONEPE_MATCHED_WAITING_CONFIRMATION"))
+                .thenReturn(Arrays.asList(confirmedPayment, releasedPayment));
+        when(paymentNotificationLogRepository
+                .findTopByEnterpriseAndAmountAndAppNameAndStatusOrderByNotificationReceivedAtAscIdAsc(
+                        enterprise, new BigDecimal("500.00"), "PHONEPE", "PHONEPE_QUEUED"
+                )).thenReturn(Optional.of(queuedNotification));
+        when(paymentRequestRepository.findActiveEnterpriseAttemptsForPhonePe(
+                eq(enterprise), eq(new BigDecimal("500.00")), anyList(), any(), any()
+        )).thenReturn(Collections.singletonList(releasedPayment));
+        when(paymentRequestRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(paymentNotificationLogRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PaymentNotificationResponse response = paymentService.confirmPhonePePayment("PAY-1", new PhonePeConfirmRequest(501L));
+
+        assertTrue(response.isMatched());
+        assertEquals("PAID_CONFIRMED_BY_CASHIER", confirmedPayment.getStatus());
+        assertEquals("PHONEPE_MATCHED_WAITING_CONFIRMATION", releasedPayment.getStatus());
+        assertEquals(502L, releasedPayment.getMatchedNotificationId());
+        assertEquals("MATCHED_WAITING_CONFIRMATION", queuedNotification.getStatus());
+        verify(paymentWebSocketService)
+                .publishPhonePeConfirmationRequired(Collections.singletonList(releasedPayment), 502L, "Second Payer");
     }
 
     @Test

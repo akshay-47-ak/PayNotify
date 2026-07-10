@@ -2,6 +2,92 @@
 
 This file is the running report for application changes. Add every new change at the top with the current date and time, followed by affected files, API request/response changes, database changes, validation behavior, and verification results.
 
+## 2026-07-10 14:45:00 IST - Java Time Migration, Backend Cashier Fields, and Payment Enums
+
+### Summary
+
+Updated payment date-time fields to use Java `LocalDateTime`, moved cashier/branch/session assignment fully to the backend, centralized payment flow hardcoded strings into enums, and added FIFO queue handling for same-enterprise same-amount PhonePe notifications.
+
+### Affected Files
+
+- `src/main/java/com/acme/PayNotify/entity/EnterpriseMaster.java`
+- `src/main/java/com/acme/PayNotify/entity/PaymentNotificationLog.java`
+- `src/main/java/com/acme/PayNotify/entity/PaymentRequest.java`
+- `src/main/java/com/acme/PayNotify/entity/PaymentTransaction.java`
+- `src/main/java/com/acme/PayNotify/entity/UserDevice.java`
+- `src/main/java/com/acme/PayNotify/dto/CreateEnterpriseRequest.java`
+- `src/main/java/com/acme/PayNotify/dto/CreateEnterpriseResponse.java`
+- `src/main/java/com/acme/PayNotify/dto/GenerateQrRequest.java`
+- `src/main/java/com/acme/PayNotify/dto/PaymentNotificationRequest.java`
+- `src/main/java/com/acme/PayNotify/dto/PaymentStatusResponse.java`
+- `src/main/java/com/acme/PayNotify/dto/PhonePeConfirmRequest.java`
+- `src/main/java/com/acme/PayNotify/dto/PhonePeRejectRequest.java`
+- `src/main/java/com/acme/PayNotify/repository/PaymentRequestRepository.java`
+- `src/main/java/com/acme/PayNotify/repository/PaymentTransactionRepository.java`
+- `src/main/java/com/acme/PayNotify/service/DeviceRegistrationService.java`
+- `src/main/java/com/acme/PayNotify/service/EnterpriseService.java`
+- `src/main/java/com/acme/PayNotify/service/PaymentService.java`
+- `src/main/java/com/acme/PayNotify/service/PaymentWebSocketService.java`
+- `src/main/java/com/acme/PayNotify/type/PaymentApp.java`
+- `src/main/java/com/acme/PayNotify/type/PaymentEventType.java`
+- `src/main/java/com/acme/PayNotify/type/PaymentStatus.java`
+- `src/test/java/com/acme/PayNotify/service/PaymentServiceTest.java`
+
+### Behavior Changes
+
+- Replaced entity and DTO `java.sql.Timestamp` date-time fields with `LocalDateTime`.
+- Updated service date-time logic to use `LocalDateTime.now()`, `plus`, `minus`, `isBefore`, and `isAfter`.
+- QR generation no longer exposes `cashierId`, `cashierSessionId`, or `branchId` in the request DTO; these values are generated and stored by the backend.
+- Backend now assigns `cashierId` from the terminal device, creates a `CS-...` cashier session id, and derives `branchId` from enterprise metadata.
+- PhonePe confirm/reject request DTOs no longer expose `cashierId`; confirmation uses the backend-stored payment cashier id.
+- Payment statuses, app names, and websocket event types are centralized in enums while preserving the same database/API string values.
+- PhonePe notifications for the same enterprise and amount now follow first-come-first-served behavior.
+- If a same-amount PhonePe confirmation is already open, the next PhonePe notification is stored as `PHONEPE_QUEUED` instead of overwriting the current candidate windows.
+- After the current PhonePe confirmation session is completed, remaining same-amount waiting payment windows receive the oldest queued PhonePe notification.
+
+### API Changes
+
+`POST /api/payment/qr/generate` clients should not send these fields anymore:
+
+```json
+{
+  "cashierId": 10,
+  "cashierSessionId": "session-abc",
+  "branchId": 1
+}
+```
+
+PhonePe confirm request only needs `notificationId`. Backend confirmation uses the cashier id stored on the payment:
+
+```json
+{
+  "notificationId": 501
+}
+```
+
+PhonePe reject request now only needs:
+
+```json
+{
+  "notificationId": 501,
+  "reason": "Not my customer"
+}
+```
+
+### Database Changes
+
+No schema changes. Existing timestamp/datetime columns continue to store the same logical values through JPA `LocalDateTime` mapping.
+
+### Verification
+
+Ran:
+
+```bash
+JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 ./mvnw test
+```
+
+Result: `Tests run: 14, Failures: 0, Errors: 0, Skipped: 0`.
+
 ## 2026-07-01 00:00:00 IST - Restrict PhonePe Confirmation Prompt to Matched Amount Cashier
 
 ### Summary

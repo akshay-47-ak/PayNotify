@@ -425,6 +425,28 @@ public class PaymentService {
         }
 
         if (matches.isEmpty()) {
+            List<PaymentRequest> blockedCandidates = paymentRequestRepository.findByEnterpriseAndAmountAndStatus(
+                    notification.getEnterprise(),
+                    notification.getAmount(),
+                    PaymentStatus.PHONEPE_MATCHED_WAITING_CONFIRMATION.value()
+            );
+            if (blockedCandidates != null && !blockedCandidates.isEmpty()) {
+                notification.setStatus(PaymentStatus.PHONEPE_QUEUED.value());
+                notification.setMatchedPaymentAttemptId(null);
+                paymentNotificationLogRepository.save(notification);
+                log.info("PhonePe notification queued. notificationId={}, enterpriseId={}, amount={}, blockedCandidateCount={}",
+                        notification.getId(),
+                        notification.getEnterprise() != null ? notification.getEnterprise().getId() : null,
+                        notification.getAmount(),
+                        blockedCandidates.size());
+                response.setMatched(false);
+                response.setStatus(PaymentStatus.PHONEPE_QUEUED.value());
+                response.setNotificationId(notification.getId());
+                response.setReceivedAmount(notification.getAmount().toPlainString());
+                response.setMessage("PhonePe notification queued until current confirmation is completed.");
+                return response;
+            }
+
             notification.setStatus(PaymentStatus.UNMATCHED_NOTIFICATION.value());
             paymentNotificationLogRepository.save(notification);
             log.info("PhonePe unmatched. notificationId={}, terminalId={}, amount={}",
@@ -513,6 +535,7 @@ public class PaymentService {
         paymentWebSocketService.publishPaymentUpdate(payment, "PhonePe payment confirmed successfully.");
         log.info("Cashier confirmed PhonePe payment. paymentId={}, notificationId={}, cashierId={}",
                 payment.getPaymentId(), notification.getId(), payment.getCashierId());
+        processNextQueuedPhonePeNotification(payment.getEnterprise(), payment.getAmount());
 
         PaymentNotificationResponse response = new PaymentNotificationResponse();
         response.setMatched(true);
@@ -574,6 +597,9 @@ public class PaymentService {
         paymentWebSocketService.publishPaymentUpdate(payment, "PhonePe payment rejected for this payment request.");
         log.info("Cashier rejected PhonePe payment. paymentId={}, notificationId={}, cashierId={}, reason={}",
                 payment.getPaymentId(), notification.getId(), payment.getCashierId(), request.getReason());
+        if (remainingCandidates.isEmpty()) {
+            processNextQueuedPhonePeNotification(payment.getEnterprise(), payment.getAmount());
+        }
 
         PaymentNotificationResponse response = new PaymentNotificationResponse();
         response.setMatched(false);
@@ -609,6 +635,61 @@ public class PaymentService {
             paymentRequestRepository.save(candidate);
             paymentWebSocketService.publishPaymentUpdate(candidate, "PhonePe payment handled by another cashier.");
         }
+    }
+
+    private void processNextQueuedPhonePeNotification(EnterpriseMaster enterprise, BigDecimal amount) {
+        if (enterprise == null || amount == null) {
+            return;
+        }
+
+        PaymentNotificationLog queuedNotification = paymentNotificationLogRepository
+                .findTopByEnterpriseAndAmountAndAppNameAndStatusOrderByNotificationReceivedAtAscIdAsc(
+                        enterprise,
+                        amount,
+                        PaymentApp.PHONEPE.value(),
+                        PaymentStatus.PHONEPE_QUEUED.value()
+                )
+                .orElse(null);
+        if (queuedNotification == null) {
+            return;
+        }
+
+        LocalDateTime notificationTime = queuedNotification.getNotificationReceivedAt() != null
+                ? queuedNotification.getNotificationReceivedAt()
+                : LocalDateTime.now();
+        LocalDateTime graceStart = notificationTime.minus(phonePeNotificationGraceMinutes, ChronoUnit.MINUTES);
+
+        List<PaymentRequest> waitingPayments = paymentRequestRepository.findActiveEnterpriseAttemptsForPhonePe(
+                enterprise,
+                amount,
+                WAITING_PAYMENT_STATUSES,
+                notificationTime,
+                graceStart
+        );
+        if (waitingPayments == null || waitingPayments.isEmpty()) {
+            return;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        for (PaymentRequest payment : waitingPayments) {
+            payment.setStatus(PaymentStatus.PHONEPE_MATCHED_WAITING_CONFIRMATION.value());
+            payment.setMatchedNotificationId(queuedNotification.getId());
+            payment.setPayerName(queuedNotification.getPayerName());
+            payment.setUpdatedAt(now);
+            paymentRequestRepository.save(payment);
+        }
+
+        queuedNotification.setStatus(PaymentStatus.MATCHED_WAITING_CONFIRMATION.value());
+        queuedNotification.setMatchedPaymentAttemptId(null);
+        paymentNotificationLogRepository.save(queuedNotification);
+
+        paymentWebSocketService.publishPhonePeConfirmationRequired(
+                waitingPayments,
+                queuedNotification.getId(),
+                queuedNotification.getPayerName()
+        );
+        log.info("Queued PhonePe notification assigned. notificationId={}, candidateCount={}",
+                queuedNotification.getId(), waitingPayments.size());
     }
 
     private String buildStatusMessage(PaymentRequest payment) {
