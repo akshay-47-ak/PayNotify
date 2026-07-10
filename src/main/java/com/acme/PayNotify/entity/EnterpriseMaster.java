@@ -5,7 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.sql.Timestamp;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "enterprise_master")
@@ -34,8 +34,8 @@ public class EnterpriseMaster extends BaseEntity{
     private Boolean isActive = true;
 
     @Column(name = "live_from")
-    private Timestamp liveFrom;
+    private LocalDateTime liveFrom;
 
     @Column(name = "created_at", nullable = false)
-    private Timestamp createdAt;
+    private LocalDateTime createdAt;
 }

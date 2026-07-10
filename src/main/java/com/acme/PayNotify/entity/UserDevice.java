@@ -5,7 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.sql.Timestamp;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(
@@ -57,5 +57,5 @@ public class UserDevice extends BaseEntity {
     private Boolean isActive = true;
 
     @Column(name = "registered_at", nullable = false)
-    private Timestamp registeredAt;
+    private LocalDateTime registeredAt;
 }

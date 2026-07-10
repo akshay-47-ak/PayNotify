@@ -20,8 +20,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
-import java.sql.Timestamp;
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.Collections;
@@ -338,7 +337,7 @@ class PaymentServiceTest {
         request.setPackageName(packageName);
         request.setRawTitle(appName);
         request.setRawMessage("Received Rs. 500 from Rahul");
-        request.setNotificationReceivedAt(Timestamp.from(Instant.now()));
+        request.setNotificationReceivedAt(LocalDateTime.now());
         return request;
     }
 
@@ -352,9 +351,9 @@ class PaymentServiceTest {
         payment.setTransactionRef("PADM-TXN-100");
         payment.setAmount(new BigDecimal("500.00"));
         payment.setStatus("WAITING");
-        payment.setCreatedAt(Timestamp.from(Instant.now().minus(1, ChronoUnit.MINUTES)));
-        payment.setUpdatedAt(Timestamp.from(Instant.now().minus(1, ChronoUnit.MINUTES)));
-        payment.setExpiresAt(Timestamp.from(Instant.now().plus(15, ChronoUnit.MINUTES)));
+        payment.setCreatedAt(LocalDateTime.now().minus(1, ChronoUnit.MINUTES));
+        payment.setUpdatedAt(LocalDateTime.now().minus(1, ChronoUnit.MINUTES));
+        payment.setExpiresAt(LocalDateTime.now().plus(15, ChronoUnit.MINUTES));
         return payment;
     }
 

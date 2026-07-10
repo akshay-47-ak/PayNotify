@@ -6,7 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
-import java.sql.Timestamp;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "payment_notification_log",
@@ -75,7 +75,7 @@ public class PaymentNotificationLog extends BaseEntity{
     private String payerName;
 
     @Column(name = "notification_received_at")
-    private Timestamp notificationReceivedAt;
+    private LocalDateTime notificationReceivedAt;
 
     @Column(name = "matched_payment_attempt_id")
     private Long matchedPaymentAttemptId;
@@ -87,7 +87,7 @@ public class PaymentNotificationLog extends BaseEntity{
     private String dedupeHash;
 
     @Column(name = "created_at", nullable = false)
-    private Timestamp createdAt;
+    private LocalDateTime createdAt;
 
     @Column(name = "document_own_code")
     private Long documentOwnCode;

@@ -6,7 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
-import java.sql.Timestamp;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "payment_request")
@@ -73,19 +73,19 @@ public class PaymentRequest extends BaseEntity{
     private String payerName;
 
     @Column(name = "created_at", nullable = false)
-    private Timestamp createdAt;
+    private LocalDateTime createdAt;
 
     @Column(name = "updated_at", nullable = false)
-    private Timestamp updatedAt;
+    private LocalDateTime updatedAt;
 
     @Column(name = "expires_at")
-    private Timestamp expiresAt;
+    private LocalDateTime expiresAt;
 
     @Column(name = "paid_at")
-    private Timestamp paidAt;
+    private LocalDateTime paidAt;
 
     @Column(name = "confirmed_at")
-    private Timestamp confirmedAt;
+    private LocalDateTime confirmedAt;
 
     @Column(name = "confirmed_by")
     private Long confirmedBy;
