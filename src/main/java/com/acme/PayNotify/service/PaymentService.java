@@ -144,8 +144,6 @@ public class PaymentService {
         payment.setNote(finalNote);
         payment.setUpiUrl(upiUrl);
         payment.setStatus(PaymentStatus.WAITING.value());
-        payment.setCreatedAt(now);
-        payment.setUpdatedAt(now);
         payment.setExpiresAt(addMinutes(now, qrExpiryMinutes));
         payment.setSourceApp(sourceApp);
         payment.setCashierId(generateCashierId(terminalDevice));
@@ -343,7 +341,6 @@ public class PaymentService {
         Timestamp now = currentTimestamp();
         if (payment.getExpiresAt() != null && payment.getExpiresAt().before(now)) {
             payment.setStatus(PaymentStatus.EXPIRED.value());
-            payment.setUpdatedAt(now);
             paymentRequestRepository.save(payment);
             notificationLog.setStatus(PaymentStatus.PAYMENT_EXPIRED.value());
             paymentNotificationLogRepository.save(notificationLog);
@@ -378,8 +375,6 @@ public class PaymentService {
         payment.setStatus(PaymentStatus.PAID_AUTO_VERIFIED.value());
         payment.setUtr(utr);
         payment.setPayerName(payerName);
-        payment.setPaidAt(now);
-        payment.setUpdatedAt(now);
 
         payment = paymentRequestRepository.save(payment);
         notificationLog.setStatus(PaymentStatus.USED_CONFIRMED.value());
@@ -483,13 +478,11 @@ public class PaymentService {
             return response;
         }
 
-        Timestamp now = currentTimestamp();
         PaymentRequest responsePayment = matches.get(0);
         for (PaymentRequest payment : matches) {
             payment.setStatus(PaymentStatus.PHONEPE_MATCHED_WAITING_CONFIRMATION.value());
             payment.setMatchedNotificationId(notification.getId());
             payment.setPayerName(notification.getPayerName());
-            payment.setUpdatedAt(now);
             paymentRequestRepository.save(payment);
         }
 
@@ -547,9 +540,6 @@ public class PaymentService {
         Timestamp now = currentTimestamp();
         payment.setStatus(PaymentStatus.PAID_CONFIRMED_BY_CASHIER.value());
         payment.setConfirmedBy(payment.getCashierId());
-        payment.setConfirmedAt(now);
-        payment.setPaidAt(now);
-        payment.setUpdatedAt(now);
         paymentRequestRepository.save(payment);
 
         notification.setStatus(PaymentStatus.USED_CONFIRMED.value());
@@ -603,7 +593,6 @@ public class PaymentService {
             payment.setStatus(PaymentStatus.WAITING.value());
         }
         payment.setMatchedNotificationId(null);
-        payment.setUpdatedAt(now);
         paymentRequestRepository.save(payment);
 
         List<PaymentRequest> remainingCandidates = paymentRequestRepository
@@ -657,7 +646,6 @@ public class PaymentService {
                 candidate.setStatus(PaymentStatus.WAITING.value());
             }
             candidate.setMatchedNotificationId(null);
-            candidate.setUpdatedAt(now);
             paymentRequestRepository.save(candidate);
             paymentWebSocketService.publishPaymentUpdate(candidate, "PhonePe payment handled by another cashier.");
         }
@@ -696,12 +684,10 @@ public class PaymentService {
             return;
         }
 
-        Timestamp now = currentTimestamp();
         for (PaymentRequest payment : waitingPayments) {
             payment.setStatus(PaymentStatus.PHONEPE_MATCHED_WAITING_CONFIRMATION.value());
             payment.setMatchedNotificationId(queuedNotification.getId());
             payment.setPayerName(queuedNotification.getPayerName());
-            payment.setUpdatedAt(now);
             paymentRequestRepository.save(payment);
         }
 
@@ -771,7 +757,6 @@ public class PaymentService {
         log.setDocumentOwnCode(documentOwnCode);
         log.setCompCode(1);
         log.setTenantCode(1);
-        log.setCreatedAt(currentTimestamp());
 
         return paymentNotificationLogRepository.save(log);
     }
@@ -853,7 +838,6 @@ public class PaymentService {
             if (payment.getExpiresAt() != null && payment.getExpiresAt().before(now)
                     && !PaymentStatus.PHONEPE_MATCHED_WAITING_CONFIRMATION.matches(payment.getStatus())) {
                 payment.setStatus(PaymentStatus.EXPIRED.value());
-                payment.setUpdatedAt(now);
                 paymentRequestRepository.save(payment);
             }
         }

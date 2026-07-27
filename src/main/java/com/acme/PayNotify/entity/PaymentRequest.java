@@ -1,9 +1,12 @@
 package com.acme.PayNotify.entity;
 
+import com.acme.PayNotify.type.PaymentStatus;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
@@ -72,9 +75,11 @@ public class PaymentRequest extends BaseEntity{
     @Column(name = "payer_name", length = 200)
     private String payerName;
 
-    @Column(name = "created_at", nullable = false)
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
     private Timestamp createdAt;
 
+    @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private Timestamp updatedAt;
 
@@ -95,5 +100,21 @@ public class PaymentRequest extends BaseEntity{
 
     @Column(name = "document_own_code")
     private Long documentOwnCode;
+
+    @PrePersist
+    @PreUpdate
+    private void populatePaymentEventTimestamps() {
+        Timestamp now = new Timestamp(System.currentTimeMillis());
+
+        if (paidAt == null
+                && (PaymentStatus.PAID_AUTO_VERIFIED.matches(status)
+                || PaymentStatus.PAID_CONFIRMED_BY_CASHIER.matches(status))) {
+            paidAt = now;
+        }
+
+        if (confirmedAt == null && PaymentStatus.PAID_CONFIRMED_BY_CASHIER.matches(status)) {
+            confirmedAt = now;
+        }
+    }
 
 }

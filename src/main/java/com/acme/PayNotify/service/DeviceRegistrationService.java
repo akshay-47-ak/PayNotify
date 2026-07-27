@@ -17,7 +17,6 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.KeySpec;
-import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -117,7 +116,6 @@ public class DeviceRegistrationService {
         device.setPasswordHash(hashPassword(request.getPassword()));
         device.setTerminalId(generateNextTerminalId());
         device.setIsActive(true);
-        device.setRegisteredAt(new Timestamp(System.currentTimeMillis()));
         device.setCompCode(1);
         device.setTenantCode(1);
 

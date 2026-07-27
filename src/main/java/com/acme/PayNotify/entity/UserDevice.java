@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.CreationTimestamp;
 
 import java.sql.Timestamp;
 
@@ -56,6 +57,7 @@ public class UserDevice extends BaseEntity {
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
 
-    @Column(name = "registered_at", nullable = false)
+    @CreationTimestamp
+    @Column(name = "registered_at", nullable = false, updatable = false)
     private Timestamp registeredAt;
 }

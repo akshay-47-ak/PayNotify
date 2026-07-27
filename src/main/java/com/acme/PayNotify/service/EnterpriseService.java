@@ -57,7 +57,6 @@ public class EnterpriseService {
         enterprise.setDepartmentCode(departmentInfo.departmentCode());
         enterprise.setIsActive(true);
         enterprise.setLiveFrom(request.getLiveFrom());
-        enterprise.setCreatedAt(new Timestamp(System.currentTimeMillis()));
         enterprise.setCompCode(1);
         enterprise.setTenantCode(1);
 

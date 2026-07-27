@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.CreationTimestamp;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
@@ -86,9 +87,17 @@ public class PaymentNotificationLog extends BaseEntity{
     @Column(name = "dedupe_hash", length = 64)
     private String dedupeHash;
 
-    @Column(name = "created_at", nullable = false)
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
     private Timestamp createdAt;
 
     @Column(name = "document_own_code")
     private Long documentOwnCode;
+
+    @PrePersist
+    private void populateNotificationReceivedAt() {
+        if (notificationReceivedAt == null) {
+            notificationReceivedAt = new Timestamp(System.currentTimeMillis());
+        }
+    }
 }
