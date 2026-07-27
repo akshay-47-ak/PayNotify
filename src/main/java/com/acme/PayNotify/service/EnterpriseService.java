@@ -9,7 +9,7 @@ import com.acme.PayNotify.repository.EnterpriseMasterRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
+import java.sql.Timestamp;
 import java.util.List;
 
 @Service
@@ -57,7 +57,7 @@ public class EnterpriseService {
         enterprise.setDepartmentCode(departmentInfo.departmentCode());
         enterprise.setIsActive(true);
         enterprise.setLiveFrom(request.getLiveFrom());
-        enterprise.setCreatedAt(LocalDateTime.now());
+        enterprise.setCreatedAt(new Timestamp(System.currentTimeMillis()));
         enterprise.setCompCode(1);
         enterprise.setTenantCode(1);
 
@@ -165,8 +165,8 @@ public class EnterpriseService {
             return response;
         }
 
-        LocalDateTime now = LocalDateTime.now();
-        if (enterprise.getLiveFrom() != null && enterprise.getLiveFrom().isAfter(now)) {
+        Timestamp now = new Timestamp(System.currentTimeMillis());
+        if (enterprise.getLiveFrom() != null && enterprise.getLiveFrom().after(now)) {
             response.setValid(false);
             populateEnterpriseDetails(response, enterprise);
             response.setStatus("NOT_LIVE");
@@ -195,8 +195,8 @@ public class EnterpriseService {
             throw new RuntimeException("Enterprise is inactive");
         }
 
-        LocalDateTime now = LocalDateTime.now();
-        if (enterprise.getLiveFrom() != null && enterprise.getLiveFrom().isAfter(now)) {
+        Timestamp now = new Timestamp(System.currentTimeMillis());
+        if (enterprise.getLiveFrom() != null && enterprise.getLiveFrom().after(now)) {
             throw new RuntimeException("Enterprise is not live yet");
         }
 

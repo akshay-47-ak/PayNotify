@@ -8,7 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.sql.Timestamp;
 import java.util.List;
 import java.util.Optional;
 
@@ -55,8 +55,8 @@ public interface PaymentRequestRepository extends JpaRepository<PaymentRequest, 
             @Param("enterprise") EnterpriseMaster enterprise,
             @Param("amount") BigDecimal amount,
             @Param("statuses") List<String> statuses,
-            @Param("notificationTime") LocalDateTime notificationTime,
-            @Param("graceStart") LocalDateTime graceStart
+            @Param("notificationTime") Timestamp notificationTime,
+            @Param("graceStart") Timestamp graceStart
     );
 
     @Query("select p from PaymentRequest p "
@@ -70,8 +70,8 @@ public interface PaymentRequestRepository extends JpaRepository<PaymentRequest, 
             @Param("terminalId") String terminalId,
             @Param("amount") BigDecimal amount,
             @Param("status") String status,
-            @Param("notificationTime") LocalDateTime notificationTime,
-            @Param("graceStart") LocalDateTime graceStart
+            @Param("notificationTime") Timestamp notificationTime,
+            @Param("graceStart") Timestamp graceStart
     );
 
     @Query(value = "select * from payment_request where id = :id for update", nativeQuery = true)

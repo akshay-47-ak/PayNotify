@@ -5,7 +5,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.sql.Timestamp;
 
 @Data
 @NoArgsConstructor
@@ -24,7 +24,7 @@ public class PaymentNotificationRequest {
     private BigDecimal amount;
     private String payerName;
     private String extractedTxnId;
-    private LocalDateTime notificationReceivedAt;
+    private Timestamp notificationReceivedAt;
 
     // optional direct value from flutter if already extracted
     private String transactionRef;

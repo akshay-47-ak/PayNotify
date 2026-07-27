@@ -4,7 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
+import java.sql.Timestamp;
 
 @Data
 @NoArgsConstructor
@@ -17,6 +17,6 @@ public class CreateEnterpriseResponse {
     private String department;
     private Integer departmentCode;
     private Boolean isActive;
-    private LocalDateTime liveFrom;
-    private LocalDateTime createdAt;
+    private Timestamp liveFrom;
+    private Timestamp createdAt;
 }

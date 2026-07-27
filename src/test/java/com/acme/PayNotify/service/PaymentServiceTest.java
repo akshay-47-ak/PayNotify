@@ -20,7 +20,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.sql.Timestamp;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.Collections;
@@ -155,7 +155,7 @@ class PaymentServiceTest {
     void googlePayNotificationExpiresOldPaymentBeforeAutoVerification() {
         PaymentRequest payment = waitingPayment();
         payment.setTransactionRef("PADM-TXN-100");
-        payment.setExpiresAt(LocalDateTime.now().minus(1, ChronoUnit.MINUTES));
+        payment.setExpiresAt(timestampPlusMinutes(-1));
 
         PaymentNotificationRequest request = baseNotification("Google Pay", "com.google.android.apps.nbu.paisa.user");
         request.setExtractedTxnId("PADM-TXN-100");
@@ -393,7 +393,7 @@ class PaymentServiceTest {
         queuedNotification.setStatus("PHONEPE_QUEUED");
         queuedNotification.setAmount(new BigDecimal("500.00"));
         queuedNotification.setPayerName("Second Payer");
-        queuedNotification.setNotificationReceivedAt(LocalDateTime.now());
+        queuedNotification.setNotificationReceivedAt(currentTimestamp());
 
         when(paymentRequestRepository.findByPaymentId("PAY-1")).thenReturn(Optional.of(confirmedPayment));
         when(paymentRequestRepository.findByIdForUpdate(confirmedPayment.getId())).thenReturn(Optional.of(confirmedPayment));
@@ -524,7 +524,7 @@ class PaymentServiceTest {
         request.setPackageName(packageName);
         request.setRawTitle(appName);
         request.setRawMessage("Received Rs. 500 from Rahul");
-        request.setNotificationReceivedAt(LocalDateTime.now());
+        request.setNotificationReceivedAt(currentTimestamp());
         return request;
     }
 
@@ -539,10 +539,18 @@ class PaymentServiceTest {
         payment.setAmount(new BigDecimal("500.00"));
         payment.setStatus("WAITING");
         payment.setCashierId(10L);
-        payment.setCreatedAt(LocalDateTime.now().minus(1, ChronoUnit.MINUTES));
-        payment.setUpdatedAt(LocalDateTime.now().minus(1, ChronoUnit.MINUTES));
-        payment.setExpiresAt(LocalDateTime.now().plus(15, ChronoUnit.MINUTES));
+        payment.setCreatedAt(timestampPlusMinutes(-1));
+        payment.setUpdatedAt(timestampPlusMinutes(-1));
+        payment.setExpiresAt(timestampPlusMinutes(15));
         return payment;
+    }
+
+    private Timestamp currentTimestamp() {
+        return new Timestamp(System.currentTimeMillis());
+    }
+
+    private Timestamp timestampPlusMinutes(long minutes) {
+        return Timestamp.from(currentTimestamp().toInstant().plus(minutes, ChronoUnit.MINUTES));
     }
 
     private Map<String, String> parsed(String amount, String transactionRef, String payerName) {

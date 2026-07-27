@@ -25,8 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
+import java.sql.Timestamp;
 import java.time.temporal.ChronoUnit;
 import java.util.Locale;
 import java.util.List;
@@ -131,7 +130,7 @@ public class PaymentService {
 
         String qrImageBase64 = qrCodeService.generateQrBase64(upiUrl, 300, 300);
 
-        LocalDateTime now = LocalDateTime.now();
+        Timestamp now = currentTimestamp();
 
         PaymentRequest payment = new PaymentRequest();
         payment.setPaymentId(paymentId);
@@ -147,7 +146,7 @@ public class PaymentService {
         payment.setStatus(PaymentStatus.WAITING.value());
         payment.setCreatedAt(now);
         payment.setUpdatedAt(now);
-        payment.setExpiresAt(now.plus(qrExpiryMinutes, ChronoUnit.MINUTES));
+        payment.setExpiresAt(addMinutes(now, qrExpiryMinutes));
         payment.setSourceApp(sourceApp);
         payment.setCashierId(generateCashierId(terminalDevice));
         payment.setCashierSessionId(generateCashierSessionId());
@@ -263,9 +262,9 @@ public class PaymentService {
 
         String finalTransactionRef = firstNonBlank(requestTransactionRef, parsedTransactionRef);
         String appType = detectPaymentApp(request.getAppName(), request.getPackageName());
-        LocalDateTime notificationTime = request.getNotificationReceivedAt() != null
+        Timestamp notificationTime = request.getNotificationReceivedAt() != null
                 ? request.getNotificationReceivedAt()
-                : LocalDateTime.now();
+                : currentTimestamp();
 
         PaymentNotificationResponse response = new PaymentNotificationResponse();
         response.setTransactionRef(finalTransactionRef);
@@ -341,8 +340,8 @@ public class PaymentService {
             return response;
         }
 
-        LocalDateTime now = LocalDateTime.now();
-        if (payment.getExpiresAt() != null && payment.getExpiresAt().isBefore(now)) {
+        Timestamp now = currentTimestamp();
+        if (payment.getExpiresAt() != null && payment.getExpiresAt().before(now)) {
             payment.setStatus(PaymentStatus.EXPIRED.value());
             payment.setUpdatedAt(now);
             paymentRequestRepository.save(payment);
@@ -416,10 +415,10 @@ public class PaymentService {
             return response;
         }
 
-        LocalDateTime notificationTime = notification.getNotificationReceivedAt() != null
+        Timestamp notificationTime = notification.getNotificationReceivedAt() != null
                 ? notification.getNotificationReceivedAt()
-                : LocalDateTime.now();
-        LocalDateTime graceStart = notificationTime.minus(phonePeNotificationGraceMinutes, ChronoUnit.MINUTES);
+                : currentTimestamp();
+        Timestamp graceStart = addMinutes(notificationTime, -phonePeNotificationGraceMinutes);
 
         List<PaymentRequest> matches = paymentRequestRepository.findActiveAttemptForPhonePe(
                 notification.getTerminalId(),
@@ -484,7 +483,7 @@ public class PaymentService {
             return response;
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        Timestamp now = currentTimestamp();
         PaymentRequest responsePayment = matches.get(0);
         for (PaymentRequest payment : matches) {
             payment.setStatus(PaymentStatus.PHONEPE_MATCHED_WAITING_CONFIRMATION.value());
@@ -545,7 +544,7 @@ public class PaymentService {
             throw new RuntimeException("Notification enterprise does not match payment enterprise");
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        Timestamp now = currentTimestamp();
         payment.setStatus(PaymentStatus.PAID_CONFIRMED_BY_CASHIER.value());
         payment.setConfirmedBy(payment.getCashierId());
         payment.setConfirmedAt(now);
@@ -597,8 +596,8 @@ public class PaymentService {
             throw new RuntimeException("Notification does not match this payment request");
         }
 
-        LocalDateTime now = LocalDateTime.now();
-        if (payment.getExpiresAt() != null && payment.getExpiresAt().isBefore(now)) {
+        Timestamp now = currentTimestamp();
+        if (payment.getExpiresAt() != null && payment.getExpiresAt().before(now)) {
             payment.setStatus(PaymentStatus.EXPIRED.value());
         } else {
             payment.setStatus(PaymentStatus.WAITING.value());
@@ -640,7 +639,7 @@ public class PaymentService {
         return response;
     }
 
-    private void releaseOtherPhonePeCandidates(PaymentRequest confirmedPayment, Long notificationId, LocalDateTime now) {
+    private void releaseOtherPhonePeCandidates(PaymentRequest confirmedPayment, Long notificationId, Timestamp now) {
         List<PaymentRequest> candidates = paymentRequestRepository
                 .findByMatchedNotificationIdAndStatus(
                         notificationId,
@@ -652,7 +651,7 @@ public class PaymentService {
                 continue;
             }
 
-            if (candidate.getExpiresAt() != null && candidate.getExpiresAt().isBefore(now)) {
+            if (candidate.getExpiresAt() != null && candidate.getExpiresAt().before(now)) {
                 candidate.setStatus(PaymentStatus.EXPIRED.value());
             } else {
                 candidate.setStatus(PaymentStatus.WAITING.value());
@@ -681,10 +680,10 @@ public class PaymentService {
             return;
         }
 
-        LocalDateTime notificationTime = queuedNotification.getNotificationReceivedAt() != null
+        Timestamp notificationTime = queuedNotification.getNotificationReceivedAt() != null
                 ? queuedNotification.getNotificationReceivedAt()
-                : LocalDateTime.now();
-        LocalDateTime graceStart = notificationTime.minus(phonePeNotificationGraceMinutes, ChronoUnit.MINUTES);
+                : currentTimestamp();
+        Timestamp graceStart = addMinutes(notificationTime, -phonePeNotificationGraceMinutes);
 
         List<PaymentRequest> waitingPayments = paymentRequestRepository.findActiveEnterpriseAttemptsForPhonePe(
                 enterprise,
@@ -697,7 +696,7 @@ public class PaymentService {
             return;
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        Timestamp now = currentTimestamp();
         for (PaymentRequest payment : waitingPayments) {
             payment.setStatus(PaymentStatus.PHONEPE_MATCHED_WAITING_CONFIRMATION.value());
             payment.setMatchedNotificationId(queuedNotification.getId());
@@ -745,7 +744,7 @@ public class PaymentService {
             Long documentOwnCode,
             BigDecimal amount,
             String payerName,
-            LocalDateTime notificationTime,
+            Timestamp notificationTime,
             String dedupeHash,
             String status) {
 
@@ -772,13 +771,21 @@ public class PaymentService {
         log.setDocumentOwnCode(documentOwnCode);
         log.setCompCode(1);
         log.setTenantCode(1);
-        log.setCreatedAt(LocalDateTime.now());
+        log.setCreatedAt(currentTimestamp());
 
         return paymentNotificationLogRepository.save(log);
     }
 
     private String generateTransactionRef() {
         return "PADM-TXN-" + (System.currentTimeMillis() % 1000000);
+    }
+
+    private Timestamp currentTimestamp() {
+        return new Timestamp(System.currentTimeMillis());
+    }
+
+    private Timestamp addMinutes(Timestamp timestamp, long minutes) {
+        return Timestamp.from(timestamp.toInstant().plus(minutes, ChronoUnit.MINUTES));
     }
 
     private Long generateCashierId(UserDevice terminalDevice) {
@@ -836,14 +843,14 @@ public class PaymentService {
     }
 
     private void expireOldActivePayments(String terminalId) {
-        LocalDateTime now = LocalDateTime.now();
+        Timestamp now = currentTimestamp();
         List<PaymentRequest> activePayments = paymentRequestRepository.findByTerminalIdAndStatusIn(
                 terminalId,
                 ACTIVE_PAYMENT_STATUSES
         );
 
         for (PaymentRequest payment : activePayments) {
-            if (payment.getExpiresAt() != null && payment.getExpiresAt().isBefore(now)
+            if (payment.getExpiresAt() != null && payment.getExpiresAt().before(now)
                     && !PaymentStatus.PHONEPE_MATCHED_WAITING_CONFIRMATION.matches(payment.getStatus())) {
                 payment.setStatus(PaymentStatus.EXPIRED.value());
                 payment.setUpdatedAt(now);
@@ -870,9 +877,9 @@ public class PaymentService {
             String rawTitle,
             String rawMessage,
             BigDecimal amount,
-            LocalDateTime notificationTime) {
+            Timestamp notificationTime) {
 
-        long roundedMinute = notificationTime.atZone(ZoneId.systemDefault()).toEpochSecond() / 60;
+        long roundedMinute = notificationTime.toInstant().getEpochSecond() / 60;
         String source = normalize(firstNonBlank(request.getTerminalId(), device.getTerminalId()))
                 + "|" + normalize(request.getAppName())
                 + "|" + normalize(request.getPackageName())

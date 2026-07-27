@@ -4,7 +4,7 @@ import com.acme.PayNotify.entity.PaymentTransaction;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.sql.Timestamp;
 import java.util.List;
 import java.util.Optional;
 
@@ -16,9 +16,9 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
 
     Optional<PaymentTransaction> findByUtr(String utr);
 
-    List<PaymentTransaction> findByStatusAndCreatedAtAfter(String status, LocalDateTime createdAt);
+    List<PaymentTransaction> findByStatusAndCreatedAtAfter(String status, Timestamp createdAt);
 
-    List<PaymentTransaction> findByStatusAndAmountAndCreatedAtAfter(String status, BigDecimal amount, LocalDateTime createdAt);
+    List<PaymentTransaction> findByStatusAndAmountAndCreatedAtAfter(String status, BigDecimal amount, Timestamp createdAt);
 
     Optional<PaymentTransaction> findTopByStatusOrderByCreatedAtDesc(String status);
 
