@@ -4,6 +4,7 @@ import com.acme.PayNotify.dto.GenerateQrRequest;
 import com.acme.PayNotify.dto.PaymentNotificationRequest;
 import com.acme.PayNotify.dto.PaymentNotificationResponse;
 import com.acme.PayNotify.dto.PhonePeConfirmRequest;
+import com.acme.PayNotify.dto.ManualPaymentConfirmRequest;
 import com.acme.PayNotify.dto.PhonePeRejectRequest;
 import com.acme.PayNotify.entity.EnterpriseMaster;
 import com.acme.PayNotify.entity.PaymentNotificationLog;
@@ -14,6 +15,7 @@ import com.acme.PayNotify.repository.PaymentRequestRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -22,6 +24,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -30,12 +33,14 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -76,6 +81,7 @@ class PaymentServiceTest {
     void setUp() {
         ReflectionTestUtils.setField(paymentService, "qrExpiryMinutes", 15L);
         ReflectionTestUtils.setField(paymentService, "phonePeNotificationGraceMinutes", 10L);
+        ReflectionTestUtils.setField(paymentService, "manualConfirmFallbackMinutes", 3L);
 
         enterprise = new EnterpriseMaster();
         enterprise.setId(1L);
@@ -182,6 +188,49 @@ class PaymentServiceTest {
         assertEquals("EXPIRED", payment.getStatus());
         verify(paymentRequestRepository).save(payment);
         verify(paymentWebSocketService, never()).publishPaymentUpdate(any(), any());
+    }
+
+    @Test
+    void googlePayNotificationsWithinSameSecondAreNotCollapsedByDedupeHash() {
+        Timestamp firstTime = currentTimestamp();
+        Timestamp secondTime = Timestamp.from(firstTime.toInstant().plus(500, ChronoUnit.MILLIS));
+
+        PaymentNotificationRequest firstRequest = baseNotification(
+                "Google Pay",
+                "com.google.android.apps.nbu.paisa.user"
+        );
+        firstRequest.setExtractedTxnId("PADM-TXN-100");
+        firstRequest.setAmount(new BigDecimal("500.00"));
+        firstRequest.setNotificationReceivedAt(firstTime);
+
+        PaymentNotificationRequest secondRequest = baseNotification(
+                "Google Pay",
+                "com.google.android.apps.nbu.paisa.user"
+        );
+        secondRequest.setExtractedTxnId("PADM-TXN-101");
+        secondRequest.setAmount(new BigDecimal("500.00"));
+        secondRequest.setNotificationReceivedAt(secondTime);
+
+        when(deviceRegistrationService.getActiveDevice("ENT", "DEVICE-1")).thenReturn(terminal);
+        when(notificationParserService.parse(any())).thenReturn(parsed("500.00", null, "Rahul"));
+        when(paymentNotificationLogRepository.findByDedupeHash(any())).thenReturn(Optional.empty());
+        when(paymentNotificationLogRepository.save(any())).thenAnswer(invocation -> {
+            PaymentNotificationLog log = invocation.getArgument(0);
+            if (log.getId() == null) {
+                log.setId(501L);
+            }
+            return log;
+        });
+        when(paymentRequestRepository.findTopByTransactionRefAndStatusInOrderByCreatedAtDesc(any(), anyList()))
+                .thenReturn(Optional.empty());
+
+        paymentService.processNotification(firstRequest);
+        paymentService.processNotification(secondRequest);
+
+        ArgumentCaptor<String> dedupeHashCaptor = ArgumentCaptor.forClass(String.class);
+        verify(paymentNotificationLogRepository, times(2)).findByDedupeHash(dedupeHashCaptor.capture());
+        List<String> dedupeHashes = dedupeHashCaptor.getAllValues();
+        assertNotEquals(dedupeHashes.get(0), dedupeHashes.get(1));
     }
 
     @Test
@@ -422,6 +471,102 @@ class PaymentServiceTest {
     }
 
     @Test
+    void secondPhonePeNotificationAfterFirstCashierConfirmsGoesOnlyToWaitingCashier() {
+        PaymentRequest paidPayment = waitingPayment();
+        paidPayment.setStatus("PAID_CONFIRMED_BY_CASHIER");
+        paidPayment.setMatchedNotificationId(501L);
+
+        PaymentRequest waitingSecondPayment = waitingPayment();
+        waitingSecondPayment.setId(2L);
+        waitingSecondPayment.setPaymentId("PAY-2");
+        waitingSecondPayment.setTerminalId("TERM-2");
+        waitingSecondPayment.setStatus("WAITING");
+        waitingSecondPayment.setMatchedNotificationId(null);
+
+        PaymentNotificationRequest request = baseNotification("PhonePe", "com.phonepe.app");
+        request.setAmount(new BigDecimal("500.00"));
+        request.setPayerName("Second Payer");
+
+        when(deviceRegistrationService.getActiveDevice("ENT", "DEVICE-1")).thenReturn(terminal);
+        when(notificationParserService.parse(any())).thenReturn(parsed("500.00", null, "Second Payer"));
+        when(paymentNotificationLogRepository.findByDedupeHash(any())).thenReturn(Optional.empty());
+        when(paymentNotificationLogRepository.save(any())).thenAnswer(invocation -> {
+            PaymentNotificationLog log = invocation.getArgument(0);
+            if (log.getId() == null) {
+                log.setId(502L);
+            }
+            return log;
+        });
+        when(paymentRequestRepository.findActiveAttemptForPhonePe(
+                eq("TERM-1"), eq(new BigDecimal("500.00")), eq("WAITING"), any(), any()
+        )).thenReturn(Collections.emptyList());
+        when(paymentRequestRepository.findActiveAttemptForPhonePe(
+                eq("TERM-1"), eq(new BigDecimal("500.00")), eq("PENDING"), any(), any()
+        )).thenReturn(Collections.emptyList());
+        when(paymentRequestRepository.findActiveEnterpriseAttemptsForPhonePe(
+                eq(enterprise), eq(new BigDecimal("500.00")), anyList(), any(), any()
+        )).thenReturn(Collections.singletonList(waitingSecondPayment));
+        when(paymentRequestRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PaymentNotificationResponse response = paymentService.processNotification(request);
+
+        assertTrue(response.isMatched());
+        assertEquals("PHONEPE_MATCHED_WAITING_CONFIRMATION", response.getStatus());
+        assertEquals("PAID_CONFIRMED_BY_CASHIER", paidPayment.getStatus());
+        assertEquals("PHONEPE_MATCHED_WAITING_CONFIRMATION", waitingSecondPayment.getStatus());
+        assertEquals(502L, waitingSecondPayment.getMatchedNotificationId());
+        verify(paymentWebSocketService)
+                .publishPhonePeConfirmationRequired(Collections.singletonList(waitingSecondPayment), 502L, "Second Payer");
+    }
+
+    @Test
+    void phonePeNotificationsWithinSameSecondAreNotCollapsedByDedupeHash() {
+        Timestamp firstTime = currentTimestamp();
+        Timestamp secondTime = Timestamp.from(firstTime.toInstant().plus(500, ChronoUnit.MILLIS));
+
+        PaymentNotificationRequest firstRequest = baseNotification("PhonePe", "com.phonepe.app");
+        firstRequest.setAmount(new BigDecimal("500.00"));
+        firstRequest.setPayerName("Rahul");
+        firstRequest.setNotificationReceivedAt(firstTime);
+
+        PaymentNotificationRequest secondRequest = baseNotification("PhonePe", "com.phonepe.app");
+        secondRequest.setAmount(new BigDecimal("500.00"));
+        secondRequest.setPayerName("Rahul");
+        secondRequest.setNotificationReceivedAt(secondTime);
+
+        when(deviceRegistrationService.getActiveDevice("ENT", "DEVICE-1")).thenReturn(terminal);
+        when(notificationParserService.parse(any())).thenReturn(parsed("500.00", null, "Rahul"));
+        when(paymentNotificationLogRepository.findByDedupeHash(any())).thenReturn(Optional.empty());
+        when(paymentNotificationLogRepository.save(any())).thenAnswer(invocation -> {
+            PaymentNotificationLog log = invocation.getArgument(0);
+            if (log.getId() == null) {
+                log.setId(501L);
+            }
+            return log;
+        });
+        when(paymentRequestRepository.findActiveAttemptForPhonePe(
+                eq("TERM-1"), eq(new BigDecimal("500.00")), eq("WAITING"), any(), any()
+        )).thenReturn(Collections.emptyList());
+        when(paymentRequestRepository.findActiveAttemptForPhonePe(
+                eq("TERM-1"), eq(new BigDecimal("500.00")), eq("PENDING"), any(), any()
+        )).thenReturn(Collections.emptyList());
+        when(paymentRequestRepository.findActiveEnterpriseAttemptsForPhonePe(
+                eq(enterprise), eq(new BigDecimal("500.00")), anyList(), any(), any()
+        )).thenReturn(Collections.emptyList());
+        when(paymentRequestRepository.findByEnterpriseAndAmountAndStatus(
+                enterprise, new BigDecimal("500.00"), "PHONEPE_MATCHED_WAITING_CONFIRMATION"
+        )).thenReturn(Collections.emptyList());
+
+        paymentService.processNotification(firstRequest);
+        paymentService.processNotification(secondRequest);
+
+        ArgumentCaptor<String> dedupeHashCaptor = ArgumentCaptor.forClass(String.class);
+        verify(paymentNotificationLogRepository, times(2)).findByDedupeHash(dedupeHashCaptor.capture());
+        List<String> dedupeHashes = dedupeHashCaptor.getAllValues();
+        assertNotEquals(dedupeHashes.get(0), dedupeHashes.get(1));
+    }
+
+    @Test
     void duplicateNotificationIsNotProcessedAgain() {
         PaymentNotificationLog existingLog = new PaymentNotificationLog();
         existingLog.setId(501L);
@@ -463,6 +608,99 @@ class PaymentServiceTest {
                 () -> paymentService.confirmPhonePePayment("PAY-1", request)
         );
         assertEquals("Payment is not waiting for PhonePe confirmation", exception.getMessage());
+    }
+
+    @Test
+    void manualPhonePeConfirmationFailsBeforeFallbackWindow() {
+        PaymentRequest payment = waitingPayment();
+        payment.setCreatedAt(timestampPlusMinutes(-1));
+        payment.setStatus("WAITING");
+
+        when(paymentRequestRepository.findByPaymentId("PAY-1")).thenReturn(Optional.of(payment));
+        when(paymentRequestRepository.findByIdForUpdate(payment.getId())).thenReturn(Optional.of(payment));
+
+        RuntimeException exception = assertThrows(
+                RuntimeException.class,
+                () -> paymentService.manuallyConfirmPayment("PAY-1", new ManualPaymentConfirmRequest())
+        );
+
+        assertEquals("Manual confirmation is allowed only after 3 minutes from QR generation", exception.getMessage());
+        assertEquals("WAITING", payment.getStatus());
+        verify(paymentRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void manualPhonePeConfirmationSucceedsAfterFallbackWindow() {
+        PaymentRequest payment = waitingPayment();
+        payment.setCreatedAt(timestampPlusMinutes(-4));
+        payment.setStatus("WAITING");
+
+        ManualPaymentConfirmRequest request = new ManualPaymentConfirmRequest(
+                "MANUAL-UTR-1",
+                "Manual Payer",
+                "Owner confirmed by phone"
+        );
+
+        when(paymentRequestRepository.findByPaymentId("PAY-1")).thenReturn(Optional.of(payment));
+        when(paymentRequestRepository.findByIdForUpdate(payment.getId())).thenReturn(Optional.of(payment));
+        when(paymentRequestRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PaymentNotificationResponse response = paymentService.manuallyConfirmPayment("PAY-1", request);
+
+        assertTrue(response.isMatched());
+        assertEquals("PAID_CONFIRMED_BY_CASHIER", response.getStatus());
+        assertEquals("PAID_CONFIRMED_BY_CASHIER", payment.getStatus());
+        assertEquals(10L, payment.getConfirmedBy());
+        assertEquals("MANUAL-UTR-1", payment.getUtr());
+        assertEquals("Manual Payer", payment.getPayerName());
+        verify(paymentWebSocketService).publishPaymentUpdate(payment, "Payment manually confirmed by cashier.");
+    }
+
+    @Test
+    void manualGooglePayConfirmationSucceedsAfterFallbackWindow() {
+        PaymentRequest payment = waitingPayment();
+        payment.setCreatedAt(timestampPlusMinutes(-4));
+        payment.setStatus("WAITING");
+        payment.setSourceApp("GOOGLE_PAY");
+
+        ManualPaymentConfirmRequest request = new ManualPaymentConfirmRequest(
+                "GPAY-MANUAL-UTR-1",
+                "Google Pay Manual Payer",
+                "Owner confirmed Google Pay by phone"
+        );
+
+        when(paymentRequestRepository.findByPaymentId("PAY-1")).thenReturn(Optional.of(payment));
+        when(paymentRequestRepository.findByIdForUpdate(payment.getId())).thenReturn(Optional.of(payment));
+        when(paymentRequestRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PaymentNotificationResponse response = paymentService.manuallyConfirmPayment("PAY-1", request);
+
+        assertTrue(response.isMatched());
+        assertEquals("PAID_CONFIRMED_BY_CASHIER", response.getStatus());
+        assertEquals("PAID_CONFIRMED_BY_CASHIER", payment.getStatus());
+        assertEquals(10L, payment.getConfirmedBy());
+        assertEquals("GPAY-MANUAL-UTR-1", payment.getUtr());
+        assertEquals("Google Pay Manual Payer", payment.getPayerName());
+        verify(paymentWebSocketService).publishPaymentUpdate(payment, "Payment manually confirmed by cashier.");
+    }
+
+    @Test
+    void manualPhonePeConfirmationFailsWhenNotificationConfirmationIsOpen() {
+        PaymentRequest payment = waitingPayment();
+        payment.setCreatedAt(timestampPlusMinutes(-4));
+        payment.setStatus("PHONEPE_MATCHED_WAITING_CONFIRMATION");
+        payment.setMatchedNotificationId(501L);
+
+        when(paymentRequestRepository.findByPaymentId("PAY-1")).thenReturn(Optional.of(payment));
+        when(paymentRequestRepository.findByIdForUpdate(payment.getId())).thenReturn(Optional.of(payment));
+
+        RuntimeException exception = assertThrows(
+                RuntimeException.class,
+                () -> paymentService.manuallyConfirmPayment("PAY-1", new ManualPaymentConfirmRequest())
+        );
+
+        assertEquals("Payment has a PhonePe notification. Use notification confirm API.", exception.getMessage());
+        verify(paymentRequestRepository, never()).save(any());
     }
 
     @Test

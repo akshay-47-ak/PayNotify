@@ -1,8 +1,10 @@
 package com.acme.PayNotify.controller;
 
 import com.acme.PayNotify.dto.ApiResponse;
+import com.acme.PayNotify.dto.ManualPaymentConfirmRequest;
 import com.acme.PayNotify.dto.PaymentNotificationResponse;
 import com.acme.PayNotify.dto.PhonePeConfirmRequest;
+import com.acme.PayNotify.dto.PhonePeManualConfirmRequest;
 import com.acme.PayNotify.dto.PhonePeRejectRequest;
 import com.acme.PayNotify.service.PaymentService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -53,6 +55,33 @@ public class PaymentPhonePeController {
 
             return ResponseEntity.ok(
                     new ApiResponse<>(true, "PhonePe payment rejected by cashier.", response)
+            );
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest()
+                    .body(new ApiResponse<>(false, e.getMessage(), null));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ApiResponse<>(false, e.getMessage(), null));
+        }
+    }
+
+    @PostMapping("/{paymentAttemptId}/phonepe/manual-confirm")
+    public ResponseEntity<ApiResponse<PaymentNotificationResponse>> manuallyConfirmPhonePePayment(
+            @PathVariable("paymentAttemptId") String paymentAttemptId,
+            @RequestBody(required = false) PhonePeManualConfirmRequest request) {
+        return manuallyConfirmPayment(paymentAttemptId, request);
+    }
+
+    @PostMapping("/{paymentAttemptId}/manual-confirm")
+    public ResponseEntity<ApiResponse<PaymentNotificationResponse>> manuallyConfirmPayment(
+            @PathVariable("paymentAttemptId") String paymentAttemptId,
+            @RequestBody(required = false) ManualPaymentConfirmRequest request) {
+        try {
+            PaymentNotificationResponse response =
+                    paymentService.manuallyConfirmPayment(paymentAttemptId, request);
+
+            return ResponseEntity.ok(
+                    new ApiResponse<>(true, "Payment manually confirmed successfully.", response)
             );
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest()

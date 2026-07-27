@@ -2,6 +2,7 @@ package com.acme.PayNotify.service;
 
 import com.acme.PayNotify.dto.GenerateQrRequest;
 import com.acme.PayNotify.dto.GenerateQrResponse;
+import com.acme.PayNotify.dto.ManualPaymentConfirmRequest;
 import com.acme.PayNotify.dto.PhonePeConfirmRequest;
 import com.acme.PayNotify.dto.PhonePeRejectRequest;
 import com.acme.PayNotify.dto.PaymentNotificationRequest;
@@ -75,6 +76,9 @@ public class PaymentService {
 
     @Value("${payment.phonepe.notification-grace-minutes:10}")
     private long phonePeNotificationGraceMinutes;
+
+    @Value("${payment.manual-confirm-fallback-minutes:${payment.phonepe.manual-confirm-fallback-minutes:3}}")
+    private long manualConfirmFallbackMinutes;
 
     @Transactional
     public GenerateQrResponse generateQr(GenerateQrRequest request) throws Exception {
@@ -628,6 +632,77 @@ public class PaymentService {
         return response;
     }
 
+    @Transactional
+    public PaymentNotificationResponse manuallyConfirmPayment(
+            String paymentAttemptId,
+            ManualPaymentConfirmRequest request) {
+
+        PaymentRequest payment = findPaymentForUpdate(paymentAttemptId);
+
+        if (!PaymentStatus.WAITING.matches(payment.getStatus())
+                && !PaymentStatus.PENDING.matches(payment.getStatus())) {
+            if (PaymentStatus.PHONEPE_MATCHED_WAITING_CONFIRMATION.matches(payment.getStatus())) {
+                throw new RuntimeException("Payment has a PhonePe notification. Use notification confirm API.");
+            }
+            throw new RuntimeException("Payment is not waiting for manual confirmation");
+        }
+
+        Timestamp now = currentTimestamp();
+        if (payment.getExpiresAt() != null && payment.getExpiresAt().before(now)) {
+            payment.setStatus(PaymentStatus.EXPIRED.value());
+            paymentRequestRepository.save(payment);
+            paymentWebSocketService.publishPaymentUpdate(payment, "Payment request is expired.");
+            throw new RuntimeException("Payment request is expired");
+        }
+
+        if (payment.getCreatedAt() == null) {
+            throw new RuntimeException("Payment creation time is not available for fallback check");
+        }
+
+        Timestamp fallbackAllowedAt = addMinutes(payment.getCreatedAt(), manualConfirmFallbackMinutes);
+        if (fallbackAllowedAt.after(now)) {
+            throw new RuntimeException(
+                    "Manual confirmation is allowed only after "
+                            + manualConfirmFallbackMinutes
+                            + " minutes from QR generation"
+            );
+        }
+
+        if (request != null) {
+            payment.setUtr(firstNonBlank(request.getUtr(), payment.getUtr()));
+            payment.setPayerName(firstNonBlank(request.getPayerName(), payment.getPayerName()));
+        }
+        payment.setStatus(PaymentStatus.PAID_CONFIRMED_BY_CASHIER.value());
+        payment.setConfirmedBy(payment.getCashierId());
+        payment.setMatchedNotificationId(null);
+        paymentRequestRepository.save(payment);
+
+        paymentWebSocketService.publishPaymentUpdate(payment, "Payment manually confirmed by cashier.");
+        log.info("Cashier manually confirmed payment. paymentId={}, sourceApp={}, cashierId={}, reason={}",
+                payment.getPaymentId(),
+                payment.getSourceApp(),
+                payment.getCashierId(),
+                request != null ? request.getReason() : null);
+
+        PaymentNotificationResponse response = new PaymentNotificationResponse();
+        response.setMatched(true);
+        response.setStatus(PaymentStatus.PAID_CONFIRMED_BY_CASHIER.value());
+        response.setPaymentId(payment.getPaymentId());
+        response.setTransactionRef(payment.getTransactionRef());
+        response.setExpectedAmount(payment.getAmount());
+        response.setAmountMatched(true);
+        response.setPayerName(payment.getPayerName());
+        response.setUtr(payment.getUtr());
+        response.setMessage("Payment manually confirmed by cashier.");
+        return response;
+    }
+
+    public PaymentNotificationResponse manuallyConfirmPhonePePayment(
+            String paymentAttemptId,
+            ManualPaymentConfirmRequest request) {
+        return manuallyConfirmPayment(paymentAttemptId, request);
+    }
+
     private void releaseOtherPhonePeCandidates(PaymentRequest confirmedPayment, Long notificationId, Timestamp now) {
         List<PaymentRequest> candidates = paymentRequestRepository
                 .findByMatchedNotificationIdAndStatus(
@@ -863,14 +938,14 @@ public class PaymentService {
             BigDecimal amount,
             Timestamp notificationTime) {
 
-        long roundedMinute = notificationTime.toInstant().getEpochSecond() / 60;
+        long notificationMillis = notificationTime.getTime();
         String source = normalize(firstNonBlank(request.getTerminalId(), device.getTerminalId()))
                 + "|" + normalize(request.getAppName())
                 + "|" + normalize(request.getPackageName())
                 + "|" + (amount != null ? amount.stripTrailingZeros().toPlainString() : "")
                 + "|" + normalize(rawTitle)
                 + "|" + normalize(rawMessage)
-                + "|" + roundedMinute;
+                + "|" + notificationMillis;
 
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
