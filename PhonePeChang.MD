@@ -206,7 +206,6 @@ Request:
 
 ```json
 {
-  "cashierId": 10,
   "notificationId": 501
 }
 ```
@@ -215,10 +214,10 @@ Behavior:
 
 - Locks the payment attempt and notification row with pessimistic write locks.
 - Validates payment status is `PHONEPE_MATCHED_WAITING_CONFIRMATION`.
-- Validates notification ID, amount, and terminal ID.
+- Validates notification ID, amount, and enterprise.
 - Rejects already-used notifications.
 - Marks payment as `PAID_CONFIRMED_BY_CASHIER`.
-- Sets `confirmedBy`, `confirmedAt`, and `paidAt`.
+- Sets `confirmedBy`; `confirmedAt` and `paidAt` are populated by entity timestamp lifecycle logic.
 - Marks notification as `USED_CONFIRMED`.
 - Publishes existing payment success websocket event.
 
@@ -240,11 +239,44 @@ Request:
 
 ```json
 {
-  "cashierId": 10,
   "notificationId": 501,
   "reason": "Not my customer"
 }
 ```
+
+### Manual Confirmation Fallback API
+
+Use this only when no Google Pay or PhonePe notification reaches the backend within the configured fallback window and cashier has manually verified payment with owner/customer.
+
+Preferred endpoint:
+
+```http
+POST /api/payments/{paymentAttemptId}/manual-confirm
+```
+
+PhonePe compatibility alias:
+
+```http
+POST /api/payments/{paymentAttemptId}/phonepe/manual-confirm
+```
+
+Request:
+
+```json
+{
+  "utr": "MANUAL-UTR-1",
+  "payerName": "Manual Payer",
+  "reason": "Owner confirmed by phone"
+}
+```
+
+Behavior:
+
+- Allowed only after `payment.manual-confirm-fallback-minutes`, default `3`, from QR generation.
+- Works for both Google Pay and PhonePe `WAITING` / `PENDING` payment requests.
+- Rejects expired payments.
+- Rejects PhonePe payments that already have a notification confirmation panel open; use `/phonepe/confirm` instead.
+- Publishes `PAYMENT_SUCCESS` to `/topic/payment/{paymentId}`, `/topic/terminal/{terminalId}`, and `/topic/enterprise/{enterpriseCode}/payments`.
 
 Behavior:
 

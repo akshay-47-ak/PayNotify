@@ -243,6 +243,7 @@ Google Pay payments are **auto-verified**. The cashier only generates QR and wai
 7. Backend auto-matches payment → status = PAID_AUTO_VERIFIED
 8. WebSocket sends eventType = "PAYMENT_SUCCESS"
 9. Show success screen
+10. If no notification reaches backend after 3 minutes, cashier may manually confirm after calling owner/customer
 ```
 
 ---
@@ -314,6 +315,49 @@ GET /api/payment/status/{paymentId}
 
 Stop polling when `status` is `PAID_AUTO_VERIFIED` or `EXPIRED`.
 
+## Manual Confirmation Fallback — Google Pay
+
+Use only when the backend did not receive the Android notification within the configured fallback window, currently 3 minutes from QR generation, and the cashier has manually confirmed payment with the owner/customer.
+
+```
+POST /api/payments/{paymentId}/manual-confirm
+```
+
+**Request:**
+```json
+{
+  "utr": "MANUAL-UTR-1",
+  "payerName": "Manual Payer",
+  "reason": "Owner confirmed by phone"
+}
+```
+
+All request fields are optional, but send `reason` when available for audit/debugging.
+
+**Success Response (`data`):**
+```json
+{
+  "matched": true,
+  "status": "PAID_CONFIRMED_BY_CASHIER",
+  "paymentId": "PAY-1720000000000",
+  "transactionRef": "PADM-TXN-123456",
+  "expectedAmount": 500.00,
+  "receivedAmount": null,
+  "amountMatched": true,
+  "utr": "MANUAL-UTR-1",
+  "payerName": "Manual Payer",
+  "notificationId": null,
+  "message": "Payment manually confirmed by cashier."
+}
+```
+
+**WebSocket after success:** backend sends `PAYMENT_SUCCESS` to `/topic/payment/{paymentId}`, `/topic/terminal/{terminalId}`, and `/topic/enterprise/{enterpriseCode}/payments`.
+
+**Common Errors (`400`):**
+- `"Manual confirmation is allowed only after 3 minutes from QR generation"`
+- `"Payment request is expired"`
+- `"Payment is not waiting for manual confirmation"`
+
 ---
 
 # Part 4 — PhonePe Flow (Web Cashier)
@@ -336,6 +380,7 @@ PhonePe payments need **cashier confirmation**. The backend matches by amount + 
 9. Show Confirm / Reject panel (amount, payerName, notificationId)
 10a. Cashier confirms → POST /api/payments/{paymentId}/phonepe/confirm
 10b. Cashier rejects  → POST /api/payments/{paymentId}/phonepe/reject
+10c. If no notification reaches backend after 3 minutes, cashier may manually confirm after calling owner/customer → POST /api/payments/{paymentId}/manual-confirm
 11. On confirm → WebSocket sends PAYMENT_SUCCESS
 ```
 
@@ -426,14 +471,12 @@ POST /api/payments/{paymentId}/phonepe/confirm
 **Request:**
 ```json
 {
-  "cashierId": 10,
   "notificationId": 501
 }
 ```
 
 | Field | Type | Required |
 |-------|------|----------|
-| `cashierId` | number | Yes |
 | `notificationId` | number | Yes (from WebSocket event) |
 
 **Success Response (`data`):**
@@ -453,7 +496,7 @@ POST /api/payments/{paymentId}/phonepe/confirm
 ```
 
 **Common Errors (`400`):**
-- `"Cashier ID and notification ID are required"`
+- `"Notification ID is required"`
 - `"Payment is not waiting for PhonePe confirmation"`
 - `"Notification is already used"`
 
@@ -468,7 +511,6 @@ POST /api/payments/{paymentId}/phonepe/reject
 **Request:**
 ```json
 {
-  "cashierId": 10,
   "notificationId": 501,
   "reason": "Not my customer"
 }
@@ -476,7 +518,6 @@ POST /api/payments/{paymentId}/phonepe/reject
 
 | Field | Type | Required |
 |-------|------|----------|
-| `cashierId` | number | Yes |
 | `notificationId` | number | Yes |
 | `reason` | string | No |
 
@@ -513,6 +554,61 @@ When status becomes `PHONEPE_MATCHED_WAITING_CONFIRMATION`, show the confirm pan
   "message": "PhonePe payment received. Please confirm after checking customer."
 }
 ```
+
+## Manual Confirmation Fallback — PhonePe
+
+Use only when the Android/owner-device notification did not reach the backend within the configured fallback window, currently 3 minutes from QR generation. The cashier should call the owner/customer, verify payment, then call this API.
+
+Preferred generic endpoint, works for both PhonePe and Google Pay:
+
+```
+POST /api/payments/{paymentId}/manual-confirm
+```
+
+Compatibility alias:
+
+```
+POST /api/payments/{paymentId}/phonepe/manual-confirm
+```
+
+**Request:**
+```json
+{
+  "utr": "MANUAL-UTR-1",
+  "payerName": "Manual Payer",
+  "reason": "Owner confirmed by phone"
+}
+```
+
+All request fields are optional. The backend uses the payment's stored cashier id for `confirmedBy`.
+
+**Success Response (`data`):**
+```json
+{
+  "matched": true,
+  "status": "PAID_CONFIRMED_BY_CASHIER",
+  "paymentId": "PAY-1720000000000",
+  "transactionRef": "PADM-TXN-123456",
+  "expectedAmount": 500.00,
+  "receivedAmount": null,
+  "amountMatched": true,
+  "utr": "MANUAL-UTR-1",
+  "payerName": "Manual Payer",
+  "notificationId": null,
+  "message": "Payment manually confirmed by cashier."
+}
+```
+
+**WebSocket after success:** backend sends `PAYMENT_SUCCESS` to:
+- `/topic/payment/{paymentId}`
+- `/topic/terminal/{terminalId}`
+- `/topic/enterprise/{enterpriseCode}/payments`
+
+**Common Errors (`400`):**
+- `"Manual confirmation is allowed only after 3 minutes from QR generation"`
+- `"Payment has a PhonePe notification. Use notification confirm API."`
+- `"Payment request is expired"`
+- `"Payment is not waiting for manual confirmation"`
 
 ---
 
@@ -581,7 +677,7 @@ client.activate();
 
 | `eventType` | When | Action |
 |-------------|------|--------|
-| `PAYMENT_SUCCESS` | `PAID_AUTO_VERIFIED` or `PAID_CONFIRMED_BY_CASHIER` | Show success screen |
+| `PAYMENT_SUCCESS` | `PAID_AUTO_VERIFIED` or `PAID_CONFIRMED_BY_CASHIER`, including manual fallback confirmation | Show success screen |
 | `PHONEPE_PAYMENT_CONFIRMATION_REQUIRED` | `PHONEPE_MATCHED_WAITING_CONFIRMATION` | Show Confirm / Reject panel |
 | `PAYMENT_STATUS_UPDATED` | `WAITING`, `EXPIRED`, `REJECTED_BY_CASHIER` | Update UI accordingly |
 
@@ -626,14 +722,21 @@ Published to `/topic/terminal/{terminalId}`:
 ### Google Pay Screen
 - [ ] Listen for `eventType: "PAYMENT_SUCCESS"` on WebSocket
 - [ ] Fallback: poll `GET /api/payment/status/{paymentId}` every 3–5 sec
-- [ ] No confirm/reject UI needed
+- [ ] If no notification arrives after 3 minutes and owner/customer confirms manually → `POST /api/payments/{paymentId}/manual-confirm`
+- [ ] No notification-based confirm/reject UI needed
 
 ### PhonePe Screen
 - [ ] Listen for `eventType: "PHONEPE_PAYMENT_CONFIRMATION_REQUIRED"`
 - [ ] Show Confirm / Reject panel with `amount`, `payerName`, `notificationId`
 - [ ] On Confirm → `POST /api/payments/{paymentId}/phonepe/confirm`
 - [ ] On Reject → `POST /api/payments/{paymentId}/phonepe/reject`
+- [ ] If no notification arrives after 3 minutes and owner/customer confirms manually → `POST /api/payments/{paymentId}/manual-confirm`
 - [ ] Fallback: poll status endpoint; show panel when status = `PHONEPE_MATCHED_WAITING_CONFIRMATION`
+
+### Manual Confirmation Fallback
+- [ ] Available for both Google Pay and PhonePe after 3 minutes from QR generation
+- [ ] On success, handle `PAYMENT_SUCCESS` from `/topic/payment/{paymentId}` and `/topic/terminal/{terminalId}`
+- [ ] Do not use manual fallback when PhonePe confirm panel is already open; use `/phonepe/confirm` with `notificationId`
 
 ### Do NOT Call from Web
 - `POST /api/payment/notify` — Android only

@@ -52,9 +52,13 @@ class PaymentWebSocketServiceTest {
 
         ArgumentCaptor<PaymentStatusEvent> eventCaptor = ArgumentCaptor.forClass(PaymentStatusEvent.class);
         verify(messagingTemplate).convertAndSend(eq("/topic/payment/PAY-1"), eventCaptor.capture());
+        verify(messagingTemplate).convertAndSend(eq("/topic/terminal/TERM-1"), eventCaptor.capture());
+        verify(messagingTemplate).convertAndSend(eq("/topic/enterprise/ENT/payments"), eventCaptor.capture());
 
-        assertEquals("PAYMENT_SUCCESS", eventCaptor.getValue().getEventType());
-        assertEquals("PAID_CONFIRMED_BY_CASHIER", eventCaptor.getValue().getStatus());
+        for (PaymentStatusEvent event : eventCaptor.getAllValues()) {
+            assertEquals("PAYMENT_SUCCESS", event.getEventType());
+            assertEquals("PAID_CONFIRMED_BY_CASHIER", event.getStatus());
+        }
     }
 
     @Test

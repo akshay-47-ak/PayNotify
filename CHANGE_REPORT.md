@@ -2,6 +2,92 @@
 
 This file is the running report for application changes. Add every new change at the top with the current date and time, followed by affected files, API request/response changes, database changes, validation behavior, and verification results.
 
+## 2026-07-27 11:45:00 IST - Manual Confirmation Fallback API and Timestamp Restore
+
+### Summary
+
+Restored payment timestamp fields to `java.sql.Timestamp`, added Hibernate/JPA timestamp lifecycle handling, tightened notification dedupe for rapid messages, verified PhonePe queue behavior, and added a manual confirmation fallback API for both Google Pay and PhonePe when no notification reaches the backend within 3 minutes.
+
+### Affected Files
+
+- `src/main/java/com/acme/PayNotify/controller/PaymentPhonePeController.java`
+- `src/main/java/com/acme/PayNotify/dto/ManualPaymentConfirmRequest.java`
+- `src/main/java/com/acme/PayNotify/dto/PhonePeManualConfirmRequest.java`
+- `src/main/java/com/acme/PayNotify/entity/EnterpriseMaster.java`
+- `src/main/java/com/acme/PayNotify/entity/PaymentNotificationLog.java`
+- `src/main/java/com/acme/PayNotify/entity/PaymentRequest.java`
+- `src/main/java/com/acme/PayNotify/entity/PaymentTransaction.java`
+- `src/main/java/com/acme/PayNotify/entity/UserDevice.java`
+- `src/main/java/com/acme/PayNotify/service/DeviceRegistrationService.java`
+- `src/main/java/com/acme/PayNotify/service/EnterpriseService.java`
+- `src/main/java/com/acme/PayNotify/service/PaymentService.java`
+- `src/main/java/com/acme/PayNotify/service/PaymentWebSocketService.java`
+- `src/main/resources/application.properties`
+- `src/test/java/com/acme/PayNotify/service/PaymentServiceTest.java`
+- `src/test/java/com/acme/PayNotify/service/PaymentWebSocketServiceTest.java`
+- `API_Documentation.md`
+- `CHANGE_REPORT.md`
+
+### Behavior Changes
+
+- `createdAt`, `updatedAt`, `registeredAt`, and log creation timestamps are now managed by Hibernate timestamp annotations.
+- `paidAt`, `confirmedAt`, and notification receive fallback time are managed by JPA lifecycle callbacks.
+- PhonePe same-enterprise same-amount queue flow is covered for multiple cashiers and sequential messages.
+- Notification dedupe now uses millisecond timestamp precision instead of minute rounding, so rapid legitimate Google Pay or PhonePe notifications do not collapse.
+- Manual fallback confirmation is available for both Google Pay and PhonePe after the configured 3-minute wait from QR generation.
+- Manual fallback confirmation publishes `PAYMENT_SUCCESS` through the normal payment update path, including `/topic/payment/{paymentId}`, `/topic/terminal/{terminalId}`, and `/topic/enterprise/{enterpriseCode}/payments`.
+
+### API Changes
+
+New generic fallback endpoint:
+
+```http
+POST /api/payments/{paymentId}/manual-confirm
+```
+
+Request body:
+
+```json
+{
+  "utr": "MANUAL-UTR-1",
+  "payerName": "Manual Payer",
+  "reason": "Owner confirmed by phone"
+}
+```
+
+PhonePe compatibility alias:
+
+```http
+POST /api/payments/{paymentId}/phonepe/manual-confirm
+```
+
+Fallback config:
+
+```properties
+payment.manual-confirm-fallback-minutes=3
+```
+
+### Validation Behavior
+
+- Manual fallback is allowed only for `WAITING` or `PENDING` payments.
+- Manual fallback is blocked before the fallback window.
+- Manual fallback is blocked if the payment is expired.
+- Manual fallback is blocked when a PhonePe notification confirmation is already open; clients must use `/phonepe/confirm` with `notificationId` in that case.
+
+### Database Changes
+
+No schema changes.
+
+### Verification
+
+Ran:
+
+```bash
+JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64 ./mvnw -Dtest=PaymentServiceTest,NotificationParserServiceTest,PaymentWebSocketServiceTest test
+```
+
+Result: `Tests run: 24, Failures: 0, Errors: 0, Skipped: 0`.
+
 ## 2026-07-10 14:45:00 IST - Java Time Migration, Backend Cashier Fields, and Payment Enums
 
 ### Summary
