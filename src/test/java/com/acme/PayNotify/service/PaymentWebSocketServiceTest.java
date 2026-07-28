@@ -7,6 +7,7 @@
 package com.acme.PayNotify.service;
 
 import com.acme.PayNotify.dto.PaymentStatusEvent;
+import com.acme.PayNotify.dto.TerminalQrEvent;
 import com.acme.PayNotify.entity.EnterpriseMaster;
 import com.acme.PayNotify.entity.PaymentRequest;
 import org.junit.jupiter.api.Test;
@@ -16,6 +17,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+
+import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.eq;
@@ -33,6 +36,29 @@ class PaymentWebSocketServiceTest {
     private PaymentWebSocketService paymentWebSocketService;
 
     @Test
+    void qrGeneratedIsPublishedToTerminalTopicForMobileTerminalDisplay() {
+        PaymentRequest payment = payment("WAITING");
+        payment.setTransactionRef("PADM-TXN-100");
+        payment.setAmount(new BigDecimal("500.00"));
+        payment.setMerchantName("Merchant");
+        payment.setUpiId("merchant@upi");
+        payment.setUpiUrl("upi://pay");
+        payment.setSourceApp("GOOGLE_PAY");
+
+        paymentWebSocketService.publishQrToTerminal(payment, "data:image/png;base64,qr", "QR generated successfully");
+
+        ArgumentCaptor<TerminalQrEvent> eventCaptor = ArgumentCaptor.forClass(TerminalQrEvent.class);
+        verify(messagingTemplate).convertAndSend(eq("/topic/terminal/TERM-1"), eventCaptor.capture());
+
+        TerminalQrEvent event = eventCaptor.getValue();
+        assertEquals("PAY-1", event.getPaymentId());
+        assertEquals("TERM-1", event.getTerminalId());
+        assertEquals("WAITING", event.getStatus());
+        assertEquals("data:image/png;base64,qr", event.getQrImageBase64());
+        assertEquals("GOOGLE_PAY", event.getSourceApp());
+    }
+
+    @Test
     void waitingPaymentUpdateIsNotPublishedAsSuccess() {
         PaymentRequest payment = payment("WAITING");
 
@@ -47,6 +73,24 @@ class PaymentWebSocketServiceTest {
             assertEquals("PAYMENT_STATUS_UPDATED", event.getEventType());
             assertEquals("WAITING", event.getStatus());
             assertEquals("PAY-1", event.getPaymentId());
+        }
+    }
+
+    @Test
+    void cancelledPaymentUpdateIsPublishedToPaymentTerminalAndEnterpriseTopics() {
+        PaymentRequest payment = payment("CANCELLED_BY_CASHIER");
+
+        paymentWebSocketService.publishPaymentUpdate(payment, "Online payment cancelled by cashier. Collect cash payment.");
+
+        ArgumentCaptor<PaymentStatusEvent> eventCaptor = ArgumentCaptor.forClass(PaymentStatusEvent.class);
+        verify(messagingTemplate).convertAndSend(eq("/topic/payment/PAY-1"), eventCaptor.capture());
+        verify(messagingTemplate).convertAndSend(eq("/topic/terminal/TERM-1"), eventCaptor.capture());
+        verify(messagingTemplate).convertAndSend(eq("/topic/enterprise/ENT/payments"), eventCaptor.capture());
+
+        for (PaymentStatusEvent event : eventCaptor.getAllValues()) {
+            assertEquals("PAYMENT_STATUS_UPDATED", event.getEventType());
+            assertEquals("CANCELLED_BY_CASHIER", event.getStatus());
+            assertEquals("Online payment cancelled by cashier. Collect cash payment.", event.getMessage());
         }
     }
 
