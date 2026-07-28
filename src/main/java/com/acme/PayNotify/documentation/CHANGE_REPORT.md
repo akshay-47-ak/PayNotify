@@ -187,7 +187,7 @@ Result: `Tests run: 14, Failures: 0, Errors: 0, Skipped: 0`.
 
 ### Summary
 
-Stopped PhonePe confirmation-required websocket prompts from being sent on the enterprise-wide payments topic. PhonePe matching still selects active same-enterprise, same-amount payment requests, but the confirm/reject prompt is now delivered only to each matched `/topic/payment/{paymentId}` cashier window.
+Stopped PhonePe confirmation-required websocket prompts from being sent on the enterprise-wide payments topic. PhonePe matching still selects active same-enterprise, same-amount payment requests, and the confirm/reject prompt is delivered to each matched `/topic/payment/{paymentId}` cashier window and `/topic/terminal/{terminalId}` terminal stream.
 
 ### Affected Files
 
@@ -198,6 +198,7 @@ Stopped PhonePe confirmation-required websocket prompts from being sent on the e
 ### Behavior Changes
 
 - `PHONEPE_PAYMENT_CONFIRMATION_REQUIRED` is no longer broadcast to `/topic/enterprise/{enterpriseCode}/payments`.
+- `PHONEPE_PAYMENT_CONFIRMATION_REQUIRED` is sent to `/topic/payment/{paymentId}` and `/topic/terminal/{terminalId}` for each matched candidate.
 - Cashiers whose active payment amount does not match the PhonePe notification should no longer receive the confirmation prompt through the enterprise feed.
 - Final payment status updates still use the existing payment, terminal, and enterprise topics.
 
@@ -254,7 +255,7 @@ Updated PhonePe assisted verification so a PhonePe notification received on one 
 ### Behavior Changes
 
 - PhonePe matching now finds active same-enterprise, same-amount QR requests inside the valid notification time window.
-- A matching PhonePe notification is published to all candidate `/topic/payment/{paymentId}` windows.
+- A matching PhonePe notification is published to all candidate `/topic/payment/{paymentId}` windows and `/topic/terminal/{terminalId}` streams.
 - Payment updates are also published on `/topic/enterprise/{enterpriseCode}/payments`.
 - Confirming from one cashier claims the notification for that payment and releases the other candidate payment windows back to waiting/expired.
 - Rejecting from one cashier only removes that cashier payment request from the candidate list; remaining cashier windows can still confirm the same notification.
@@ -288,8 +289,8 @@ Android remains notification-only for PhonePe. Android should not show Confirm /
 
 ### Behavior Changes
 
-- `PHONEPE_PAYMENT_CONFIRMATION_REQUIRED` websocket event is sent only to `/topic/payment/{paymentId}` for the cashier web screen.
-- Android terminal topic `/topic/terminal/{terminalId}` no longer receives the PhonePe confirmation-required event.
+- `PHONEPE_PAYMENT_CONFIRMATION_REQUIRED` websocket event is sent to `/topic/payment/{paymentId}` for the cashier web screen and `/topic/terminal/{terminalId}` for terminal-level listeners.
+- Android terminal topic `/topic/terminal/{terminalId}` can receive the PhonePe confirmation-required event when the terminal has a matched candidate payment.
 - Final payment success/reject status updates still go to both web and Android terminal topics.
 - `GET /api/payment/status/{paymentId}` now returns the PhonePe confirmation details required by the web screen.
 - Web can render Confirm / Reject using polling data when websocket is disconnected or unavailable.

@@ -457,6 +457,14 @@ public class PaymentService {
         }
 
         if (matches.isEmpty()) {
+            matches = findActiveTerminalAmountMatches(notification);
+        }
+
+        if (matches.isEmpty()) {
+            matches = findActiveEnterpriseAmountMatches(notification);
+        }
+
+        if (matches.isEmpty()) {
             List<PaymentRequest> blockedCandidates = paymentRequestRepository.findByEnterpriseAndAmountAndStatus(
                     notification.getEnterprise(),
                     notification.getAmount(),
@@ -513,6 +521,56 @@ public class PaymentService {
         response.setAmountMatched(true);
         response.setMessage("PhonePe payment received. Please confirm after checking customer.");
         return response;
+    }
+
+    private List<PaymentRequest> findActiveEnterpriseAmountMatches(PaymentNotificationLog notification) {
+        List<PaymentRequest> activePayments = paymentRequestRepository.findActiveEnterpriseAttemptsForPhonePeFallback(
+                notification.getEnterprise(),
+                WAITING_PAYMENT_STATUSES,
+                currentTimestamp()
+        );
+
+        List<PaymentRequest> amountMatches = filterAmountMatches(activePayments, notification.getAmount());
+        log.info("PhonePe enterprise fallback checked. notificationId={}, enterpriseId={}, amount={}, activeCandidateCount={}, amountMatchCount={}",
+                notification.getId(),
+                notification.getEnterprise() != null ? notification.getEnterprise().getId() : null,
+                notification.getAmount(),
+                activePayments != null ? activePayments.size() : 0,
+                amountMatches.size());
+
+        return amountMatches;
+    }
+
+    private List<PaymentRequest> findActiveTerminalAmountMatches(PaymentNotificationLog notification) {
+        List<PaymentRequest> activePayments = paymentRequestRepository.findByTerminalIdAndStatusIn(
+                notification.getTerminalId(),
+                WAITING_PAYMENT_STATUSES
+        );
+
+        Timestamp now = currentTimestamp();
+        List<PaymentRequest> amountMatches = filterAmountMatches(activePayments, notification.getAmount()).stream()
+                .filter(payment -> payment.getExpiresAt() == null || !payment.getExpiresAt().before(now))
+                .toList();
+        log.info("PhonePe terminal fallback checked. notificationId={}, terminalId={}, amount={}, activeCandidateCount={}, amountMatchCount={}",
+                notification.getId(),
+                notification.getTerminalId(),
+                notification.getAmount(),
+                activePayments != null ? activePayments.size() : 0,
+                amountMatches.size());
+
+        return amountMatches;
+    }
+
+    private List<PaymentRequest> filterAmountMatches(List<PaymentRequest> activePayments, BigDecimal amount) {
+        if (activePayments == null || activePayments.isEmpty()) {
+            return List.of();
+        }
+
+        return activePayments.stream()
+                .filter(payment -> payment.getAmount() != null
+                        && amount != null
+                        && payment.getAmount().compareTo(amount) == 0)
+                .toList();
     }
 
     @Transactional

@@ -92,7 +92,7 @@ Added or used these statuses:
 - `PHONEPE_MATCHED_WAITING_CONFIRMATION`
 - `PAID_CONFIRMED_BY_CASHIER`
 - `UNMATCHED_NOTIFICATION`
-- `AMBIGUOUS_NOTIFICATION`
+- `PHONEPE_QUEUED`
 - `EXPIRED`
 - `REJECTED_BY_CASHIER`
 - `USED_CONFIRMED`
@@ -177,17 +177,17 @@ PhonePe notification processing:
 
 1. Validate `terminalId` and `amount`.
 2. Find waiting payment attempts for the same terminal and amount.
-3. Match only when:
-   - terminal ID matches.
-   - amount matches as `BigDecimal`.
-   - payment status is `WAITING` or legacy `PENDING`.
-   - payment was created before notification time.
-   - notification time is within `expiresAt + grace minutes`.
-4. If no match, notification becomes `UNMATCHED_NOTIFICATION`.
-5. If one match, payment becomes `PHONEPE_MATCHED_WAITING_CONFIRMATION`.
-6. If multiple matches, notification becomes `AMBIGUOUS_NOTIFICATION`.
+3. If enterprise-level same-amount active candidates exist, publish the notification to all candidate payments for cashier confirmation.
+4. If exact matching misses because of amount scale, terminal fallback compares amounts numerically, for example `1.0` and `1.00`.
+5. If terminal fallback misses, enterprise fallback checks active same-enterprise, same-amount candidates.
+6. If no candidate exists and another same-amount PhonePe confirmation is already open, the notification becomes `PHONEPE_QUEUED`.
+7. If no candidate exists, notification becomes `UNMATCHED_NOTIFICATION`.
+8. Matched payments become `PHONEPE_MATCHED_WAITING_CONFIRMATION`.
+9. Same-enterprise, same-amount candidates on separate terminals can receive the same first notification. The cashier who confirms claims the notification; other candidates are released back to `WAITING` or `EXPIRED`. A cashier who rejects is released back to `WAITING` or `EXPIRED`, while remaining candidates can still confirm the notification.
 
 Matched PhonePe websocket event:
+
+Published to `/topic/payment/{paymentId}` and `/topic/terminal/{terminalId}` for each matched candidate. It is not published to `/topic/enterprise/{enterpriseCode}/payments`.
 
 ```json
 {

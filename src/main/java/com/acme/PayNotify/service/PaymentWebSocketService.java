@@ -77,6 +77,7 @@ public class PaymentWebSocketService {
         event.setPayerName(payerName);
 
         messagingTemplate.convertAndSend("/topic/payment/" + payment.getPaymentId(), event);
+        messagingTemplate.convertAndSend("/topic/terminal/" + payment.getTerminalId(), event);
     }
 
     // WebSocket to Web cashiers: sends one PhonePe confirmation prompt per candidate payment.

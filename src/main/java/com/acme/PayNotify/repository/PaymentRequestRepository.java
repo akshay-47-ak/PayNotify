@@ -41,6 +41,17 @@ public interface PaymentRequestRepository extends JpaRepository<PaymentRequest, 
 
     @Query("select p from PaymentRequest p "
             + "where p.enterprise = :enterprise "
+            + "and p.status in :statuses "
+            + "and (p.expiresAt is null or p.expiresAt >= :now) "
+            + "order by p.createdAt desc")
+    List<PaymentRequest> findActiveEnterpriseAttemptsForPhonePeFallback(
+            @Param("enterprise") EnterpriseMaster enterprise,
+            @Param("statuses") List<String> statuses,
+            @Param("now") Timestamp now
+    );
+
+    @Query("select p from PaymentRequest p "
+            + "where p.enterprise = :enterprise "
             + "and p.amount = :amount "
             + "and p.status in :statuses "
             + "and p.createdAt <= :notificationTime "

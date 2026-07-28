@@ -71,7 +71,7 @@ All REST APIs return the same wrapper:
 | Event Type | Status | Sent To | Client Action |
 |------------|--------|---------|---------------|
 | `PAYMENT_SUCCESS` | `PAID_AUTO_VERIFIED`, `PAID_CONFIRMED_BY_CASHIER` | Web cashier, terminal, enterprise topic | Show success |
-| `PHONEPE_PAYMENT_CONFIRMATION_REQUIRED` | `PHONEPE_MATCHED_WAITING_CONFIRMATION` | Web cashier payment topic only | Show PhonePe Confirm / Reject panel |
+| `PHONEPE_PAYMENT_CONFIRMATION_REQUIRED` | `PHONEPE_MATCHED_WAITING_CONFIRMATION` | Web cashier payment topic and terminal topic | Show PhonePe Confirm / Reject panel |
 | `PAYMENT_STATUS_UPDATED` | `WAITING`, `EXPIRED`, `REJECTED_BY_CASHIER`, `CANCELLED_BY_CASHIER`, other non-success statuses | Web cashier, terminal, enterprise topic when applicable | Update screen based on status |
 
 # 1. Web Cashier APIs
@@ -814,7 +814,7 @@ Payload:
 
 ## 4.5 PhonePe Confirmation Required Event
 
-Published only to `/topic/payment/{paymentId}` when PhonePe notification is matched and cashier action is required.
+Published to `/topic/payment/{paymentId}` and `/topic/terminal/{terminalId}` when PhonePe notification is matched and cashier action is required.
 
 Payload:
 

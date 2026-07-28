@@ -277,6 +277,91 @@ class PaymentServiceTest {
     }
 
     @Test
+    void phonePeNotificationFallbackMatchesActiveEnterprisePaymentByNumericAmount() {
+        PaymentRequest payment = waitingPayment();
+        payment.setAmount(new BigDecimal("1.00"));
+
+        PaymentNotificationRequest request = baseNotification("PhonePe", "com.phonepe.app");
+        request.setAmount(new BigDecimal("1.0"));
+        request.setPayerName("Aayan");
+
+        when(deviceRegistrationService.getActiveDevice("ENT", "DEVICE-1")).thenReturn(terminal);
+        when(notificationParserService.parse(any())).thenReturn(parsed("1.0", null, "Aayan"));
+        when(paymentNotificationLogRepository.findByDedupeHash(any())).thenReturn(Optional.empty());
+        when(paymentNotificationLogRepository.save(any())).thenAnswer(invocation -> {
+            PaymentNotificationLog log = invocation.getArgument(0);
+            if (log.getId() == null) {
+                log.setId(501L);
+            }
+            return log;
+        });
+        when(paymentRequestRepository.findActiveAttemptForPhonePe(
+                eq("TERM-1"), eq(new BigDecimal("1.0")), eq("WAITING"), any(), any()
+        )).thenReturn(Collections.emptyList());
+        when(paymentRequestRepository.findActiveAttemptForPhonePe(
+                eq("TERM-1"), eq(new BigDecimal("1.0")), eq("PENDING"), any(), any()
+        )).thenReturn(Collections.emptyList());
+        when(paymentRequestRepository.findActiveEnterpriseAttemptsForPhonePe(
+                eq(enterprise), eq(new BigDecimal("1.0")), anyList(), any(), any()
+        )).thenReturn(Collections.emptyList());
+        when(paymentRequestRepository.findActiveEnterpriseAttemptsForPhonePeFallback(
+                eq(enterprise), anyList(), any()
+        )).thenReturn(Collections.singletonList(payment));
+        when(paymentRequestRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PaymentNotificationResponse response = paymentService.processNotification(request);
+
+        assertTrue(response.isMatched());
+        assertEquals("PHONEPE_MATCHED_WAITING_CONFIRMATION", response.getStatus());
+        assertEquals("PAY-1", response.getPaymentId());
+        assertEquals(501L, response.getNotificationId());
+        assertEquals("PHONEPE_MATCHED_WAITING_CONFIRMATION", payment.getStatus());
+        verify(paymentWebSocketService).publishPhonePeConfirmationRequired(Collections.singletonList(payment), 501L, "Aayan");
+    }
+
+    @Test
+    void phonePeNotificationFallbackMatchesActiveTerminalPaymentByNumericAmount() {
+        PaymentRequest payment = waitingPayment();
+        payment.setAmount(new BigDecimal("1.00"));
+
+        PaymentNotificationRequest request = baseNotification("PhonePe", "com.phonepe.app");
+        request.setAmount(new BigDecimal("1.0"));
+        request.setPayerName("Aayan");
+
+        when(deviceRegistrationService.getActiveDevice("ENT", "DEVICE-1")).thenReturn(terminal);
+        when(notificationParserService.parse(any())).thenReturn(parsed("1.0", null, "Aayan"));
+        when(paymentNotificationLogRepository.findByDedupeHash(any())).thenReturn(Optional.empty());
+        when(paymentNotificationLogRepository.save(any())).thenAnswer(invocation -> {
+            PaymentNotificationLog log = invocation.getArgument(0);
+            if (log.getId() == null) {
+                log.setId(501L);
+            }
+            return log;
+        });
+        when(paymentRequestRepository.findActiveAttemptForPhonePe(
+                eq("TERM-1"), eq(new BigDecimal("1.0")), eq("WAITING"), any(), any()
+        )).thenReturn(Collections.emptyList());
+        when(paymentRequestRepository.findActiveAttemptForPhonePe(
+                eq("TERM-1"), eq(new BigDecimal("1.0")), eq("PENDING"), any(), any()
+        )).thenReturn(Collections.emptyList());
+        when(paymentRequestRepository.findActiveEnterpriseAttemptsForPhonePe(
+                eq(enterprise), eq(new BigDecimal("1.0")), anyList(), any(), any()
+        )).thenReturn(Collections.emptyList());
+        when(paymentRequestRepository.findByTerminalIdAndStatusIn(eq("TERM-1"), anyList()))
+                .thenReturn(Collections.singletonList(payment));
+        when(paymentRequestRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PaymentNotificationResponse response = paymentService.processNotification(request);
+
+        assertTrue(response.isMatched());
+        assertEquals("PHONEPE_MATCHED_WAITING_CONFIRMATION", response.getStatus());
+        assertEquals("PAY-1", response.getPaymentId());
+        assertEquals(501L, response.getNotificationId());
+        assertEquals("PHONEPE_MATCHED_WAITING_CONFIRMATION", payment.getStatus());
+        verify(paymentWebSocketService).publishPhonePeConfirmationRequired(Collections.singletonList(payment), 501L, "Aayan");
+    }
+
+    @Test
     void phonePeNotificationGoesToAllActiveEnterprisePaymentRequestsWithSameAmount() {
         PaymentRequest firstPayment = waitingPayment();
         PaymentRequest secondPayment = waitingPayment();
@@ -391,6 +476,106 @@ class PaymentServiceTest {
         assertEquals("WAITING", rejectedPayment.getStatus());
         assertEquals("MATCHED_WAITING_CONFIRMATION", notification.getStatus());
         assertEquals(501L, remainingPayment.getMatchedNotificationId());
+    }
+
+    @Test
+    void phonePeRejectKeepsRejectedPaymentOpenAndOtherTerminalCanConfirmSameNotification() {
+        PaymentRequest rejectedPayment = waitingPayment();
+        rejectedPayment.setStatus("PHONEPE_MATCHED_WAITING_CONFIRMATION");
+        rejectedPayment.setMatchedNotificationId(501L);
+
+        PaymentRequest confirmedPayment = waitingPayment();
+        confirmedPayment.setId(2L);
+        confirmedPayment.setPaymentId("PAY-2");
+        confirmedPayment.setTerminalId("TERM-2");
+        confirmedPayment.setCashierId(20L);
+        confirmedPayment.setStatus("PHONEPE_MATCHED_WAITING_CONFIRMATION");
+        confirmedPayment.setMatchedNotificationId(501L);
+
+        PaymentNotificationLog notification = new PaymentNotificationLog();
+        notification.setId(501L);
+        notification.setEnterprise(enterprise);
+        notification.setStatus("MATCHED_WAITING_CONFIRMATION");
+        notification.setAmount(new BigDecimal("500.00"));
+        notification.setPayerName("Rahul");
+
+        when(paymentRequestRepository.findByPaymentId("PAY-1")).thenReturn(Optional.of(rejectedPayment));
+        when(paymentRequestRepository.findByPaymentId("PAY-2")).thenReturn(Optional.of(confirmedPayment));
+        when(paymentRequestRepository.findByIdForUpdate(rejectedPayment.getId())).thenReturn(Optional.of(rejectedPayment));
+        when(paymentRequestRepository.findByIdForUpdate(confirmedPayment.getId())).thenReturn(Optional.of(confirmedPayment));
+        when(paymentNotificationLogRepository.findByIdForUpdate(501L)).thenReturn(Optional.of(notification));
+        when(paymentRequestRepository.findByMatchedNotificationIdAndStatus(501L, "PHONEPE_MATCHED_WAITING_CONFIRMATION"))
+                .thenReturn(Collections.singletonList(confirmedPayment));
+        when(paymentRequestRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(paymentNotificationLogRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PaymentNotificationResponse rejectResponse =
+                paymentService.rejectPhonePePayment("PAY-1", new PhonePeRejectRequest(501L, "Not my customer"));
+
+        assertEquals("REJECTED_BY_CASHIER", rejectResponse.getStatus());
+        assertEquals("WAITING", rejectedPayment.getStatus());
+        assertEquals(null, rejectedPayment.getMatchedNotificationId());
+        assertEquals("PHONEPE_MATCHED_WAITING_CONFIRMATION", confirmedPayment.getStatus());
+        assertEquals(501L, confirmedPayment.getMatchedNotificationId());
+        assertEquals("MATCHED_WAITING_CONFIRMATION", notification.getStatus());
+        assertEquals(null, notification.getMatchedPaymentAttemptId());
+
+        PaymentNotificationResponse confirmResponse =
+                paymentService.confirmPhonePePayment("PAY-2", new PhonePeConfirmRequest(501L));
+
+        assertTrue(confirmResponse.isMatched());
+        assertEquals("PAID_CONFIRMED_BY_CASHIER", confirmResponse.getStatus());
+        assertEquals("PAID_CONFIRMED_BY_CASHIER", confirmedPayment.getStatus());
+        assertEquals("WAITING", rejectedPayment.getStatus());
+        assertEquals("USED_CONFIRMED", notification.getStatus());
+        assertEquals(confirmedPayment.getId(), notification.getMatchedPaymentAttemptId());
+        verify(paymentWebSocketService)
+                .publishPaymentUpdate(rejectedPayment, "PhonePe payment rejected for this payment request.");
+        verify(paymentWebSocketService)
+                .publishPaymentUpdate(confirmedPayment, "PhonePe payment confirmed successfully.");
+    }
+
+    @Test
+    void phonePeConfirmClosesConfirmedPaymentAndReopensOtherTerminalCandidate() {
+        PaymentRequest confirmedPayment = waitingPayment();
+        confirmedPayment.setStatus("PHONEPE_MATCHED_WAITING_CONFIRMATION");
+        confirmedPayment.setMatchedNotificationId(501L);
+
+        PaymentRequest releasedPayment = waitingPayment();
+        releasedPayment.setId(2L);
+        releasedPayment.setPaymentId("PAY-2");
+        releasedPayment.setTerminalId("TERM-2");
+        releasedPayment.setCashierId(20L);
+        releasedPayment.setStatus("PHONEPE_MATCHED_WAITING_CONFIRMATION");
+        releasedPayment.setMatchedNotificationId(501L);
+
+        PaymentNotificationLog notification = new PaymentNotificationLog();
+        notification.setId(501L);
+        notification.setEnterprise(enterprise);
+        notification.setStatus("MATCHED_WAITING_CONFIRMATION");
+        notification.setAmount(new BigDecimal("500.00"));
+        notification.setPayerName("Rahul");
+
+        when(paymentRequestRepository.findByPaymentId("PAY-1")).thenReturn(Optional.of(confirmedPayment));
+        when(paymentRequestRepository.findByIdForUpdate(confirmedPayment.getId())).thenReturn(Optional.of(confirmedPayment));
+        when(paymentNotificationLogRepository.findByIdForUpdate(501L)).thenReturn(Optional.of(notification));
+        when(paymentRequestRepository.findByMatchedNotificationIdAndStatus(501L, "PHONEPE_MATCHED_WAITING_CONFIRMATION"))
+                .thenReturn(Arrays.asList(confirmedPayment, releasedPayment));
+        when(paymentRequestRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(paymentNotificationLogRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PaymentNotificationResponse response = paymentService.confirmPhonePePayment("PAY-1", new PhonePeConfirmRequest(501L));
+
+        assertTrue(response.isMatched());
+        assertEquals("PAID_CONFIRMED_BY_CASHIER", confirmedPayment.getStatus());
+        assertEquals("WAITING", releasedPayment.getStatus());
+        assertEquals(null, releasedPayment.getMatchedNotificationId());
+        assertEquals("USED_CONFIRMED", notification.getStatus());
+        assertEquals(confirmedPayment.getId(), notification.getMatchedPaymentAttemptId());
+        verify(paymentWebSocketService)
+                .publishPaymentUpdate(confirmedPayment, "PhonePe payment confirmed successfully.");
+        verify(paymentWebSocketService)
+                .publishPaymentUpdate(releasedPayment, "PhonePe payment handled by another cashier.");
     }
 
     @Test

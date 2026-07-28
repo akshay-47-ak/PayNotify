@@ -19,6 +19,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import java.math.BigDecimal;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.eq;
@@ -112,18 +113,49 @@ class PaymentWebSocketServiceTest {
     }
 
     @Test
-    void phonePeConfirmationRequiredIsOnlyPublishedToMatchedPayment() {
+    void phonePeConfirmationRequiredIsPublishedToMatchedPaymentAndTerminal() {
         PaymentRequest payment = payment("PHONEPE_MATCHED_WAITING_CONFIRMATION");
 
         paymentWebSocketService.publishPhonePeConfirmationRequired(payment, 501L, "Rahul");
 
         ArgumentCaptor<PaymentStatusEvent> eventCaptor = ArgumentCaptor.forClass(PaymentStatusEvent.class);
         verify(messagingTemplate).convertAndSend(eq("/topic/payment/PAY-1"), eventCaptor.capture());
+        verify(messagingTemplate).convertAndSend(eq("/topic/terminal/TERM-1"), eventCaptor.capture());
         verify(messagingTemplate, never()).convertAndSend(eq("/topic/enterprise/ENT/payments"), isA(PaymentStatusEvent.class));
 
-        assertEquals("PHONEPE_PAYMENT_CONFIRMATION_REQUIRED", eventCaptor.getValue().getEventType());
-        assertEquals("PHONEPE_MATCHED_WAITING_CONFIRMATION", eventCaptor.getValue().getStatus());
-        assertEquals(501L, eventCaptor.getValue().getNotificationId());
+        for (PaymentStatusEvent event : eventCaptor.getAllValues()) {
+            assertEquals("PHONEPE_PAYMENT_CONFIRMATION_REQUIRED", event.getEventType());
+            assertEquals("PHONEPE_MATCHED_WAITING_CONFIRMATION", event.getStatus());
+            assertEquals(501L, event.getNotificationId());
+        }
+    }
+
+    @Test
+    void phonePeConfirmationRequiredForSameAmountCandidatesIsPublishedToEachTerminal() {
+        PaymentRequest firstPayment = payment("PHONEPE_MATCHED_WAITING_CONFIRMATION");
+        PaymentRequest secondPayment = payment("PHONEPE_MATCHED_WAITING_CONFIRMATION");
+        secondPayment.setPaymentId("PAY-2");
+        secondPayment.setTerminalId("TERM-2");
+
+        paymentWebSocketService.publishPhonePeConfirmationRequired(
+                Arrays.asList(firstPayment, secondPayment),
+                501L,
+                "Rahul"
+        );
+
+        ArgumentCaptor<PaymentStatusEvent> eventCaptor = ArgumentCaptor.forClass(PaymentStatusEvent.class);
+        verify(messagingTemplate).convertAndSend(eq("/topic/payment/PAY-1"), eventCaptor.capture());
+        verify(messagingTemplate).convertAndSend(eq("/topic/terminal/TERM-1"), eventCaptor.capture());
+        verify(messagingTemplate).convertAndSend(eq("/topic/payment/PAY-2"), eventCaptor.capture());
+        verify(messagingTemplate).convertAndSend(eq("/topic/terminal/TERM-2"), eventCaptor.capture());
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/enterprise/ENT/payments"), isA(PaymentStatusEvent.class));
+
+        for (PaymentStatusEvent event : eventCaptor.getAllValues()) {
+            assertEquals("PHONEPE_PAYMENT_CONFIRMATION_REQUIRED", event.getEventType());
+            assertEquals("PHONEPE_MATCHED_WAITING_CONFIRMATION", event.getStatus());
+            assertEquals(501L, event.getNotificationId());
+            assertEquals("Rahul", event.getPayerName());
+        }
     }
 
     private PaymentRequest payment(String status) {
