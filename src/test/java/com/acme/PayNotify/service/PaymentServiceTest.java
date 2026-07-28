@@ -10,6 +10,7 @@ import com.acme.PayNotify.dto.CancelPaymentRequest;
 import com.acme.PayNotify.dto.GenerateQrRequest;
 import com.acme.PayNotify.dto.PaymentNotificationRequest;
 import com.acme.PayNotify.dto.PaymentNotificationResponse;
+import com.acme.PayNotify.dto.PaymentStatusResponse;
 import com.acme.PayNotify.dto.PhonePeConfirmRequest;
 import com.acme.PayNotify.dto.ManualPaymentConfirmRequest;
 import com.acme.PayNotify.dto.PhonePeRejectRequest;
@@ -729,6 +730,39 @@ class PaymentServiceTest {
 
         assertEquals("Selected terminal already has an active payment request.", exception.getMessage());
         verify(paymentRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void latestPendingReturnsPhonePeConfirmationPayment() {
+        PaymentRequest payment = waitingPayment();
+        payment.setStatus("PHONEPE_MATCHED_WAITING_CONFIRMATION");
+        payment.setMatchedNotificationId(501L);
+        payment.setPayerName("Rahul");
+
+        when(enterpriseService.getValidatedEnterprise("ENT")).thenReturn(enterprise);
+        when(paymentRequestRepository.findTopByEnterpriseAndTerminalIdAndStatusOrderByCreatedAtDesc(
+                enterprise,
+                "TERM-1",
+                "WAITING"
+        )).thenReturn(Optional.empty());
+        when(paymentRequestRepository.findTopByEnterpriseAndTerminalIdAndStatusOrderByCreatedAtDesc(
+                enterprise,
+                "TERM-1",
+                "PENDING"
+        )).thenReturn(Optional.empty());
+        when(paymentRequestRepository.findTopByEnterpriseAndTerminalIdAndStatusOrderByCreatedAtDesc(
+                enterprise,
+                "TERM-1",
+                "PHONEPE_MATCHED_WAITING_CONFIRMATION"
+        )).thenReturn(Optional.of(payment));
+
+        PaymentStatusResponse response = paymentService.getLatestPendingPayment("ENT", "TERM-1");
+
+        assertNotNull(response);
+        assertEquals("PAY-1", response.getPaymentId());
+        assertEquals("PHONEPE_MATCHED_WAITING_CONFIRMATION", response.getStatus());
+        assertEquals(501L, response.getNotificationId());
+        assertEquals("Rahul", response.getPayerName());
     }
 
     @Test

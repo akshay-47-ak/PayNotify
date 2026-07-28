@@ -209,7 +209,7 @@ public class PaymentService {
         EnterpriseMaster enterprise = enterpriseService.getValidatedEnterprise(enterpriseCode);
 
         PaymentRequest payment = null;
-        for (String status : WAITING_PAYMENT_STATUSES) {
+        for (String status : ACTIVE_PAYMENT_STATUSES) {
             payment = paymentRequestRepository
                     .findTopByEnterpriseAndTerminalIdAndStatusOrderByCreatedAtDesc(
                             enterprise,
