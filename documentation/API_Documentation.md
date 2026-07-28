@@ -18,9 +18,13 @@ http://{server-host}:8080
 | Setting | Value |
 |---------|-------|
 | Content-Type | `application/json` |
-| Authentication | None currently |
+| Authentication | JWT Bearer token |
 | CORS | Enabled for all origins |
 | WebSocket endpoint | `http://{server-host}:8080/ws` using SockJS + STOMP |
+
+## Security
+
+REST APIs and WebSocket handshakes use JWT Bearer authentication. See [SECURITY_JWT.md](SECURITY_JWT.md) for token issuance, protected routes, WebSocket token usage, configuration, and failure responses.
 
 ## Common API Response
 
@@ -98,7 +102,10 @@ Success `data`:
   "department": "PADM",
   "departmentCode": 1,
   "status": "VALID",
-  "message": "Enterprise is valid"
+  "message": "Enterprise validated successfully",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "tokenExpiresAt": 1785225600000,
+  "tokenType": "Bearer"
 }
 ```
 
@@ -108,6 +115,12 @@ Web cashier app calls this to populate terminal selection.
 
 ```text
 GET /api/device/terminals?enterpriseCode=PADM001
+```
+
+Required header:
+
+```text
+Authorization: Bearer {webCashierToken}
 ```
 
 Success `data`:
@@ -134,6 +147,12 @@ Web cashier app calls this for both Google Pay and PhonePe.
 
 ```text
 POST /api/payment/qr/generate
+```
+
+Required header:
+
+```text
+Authorization: Bearer {webCashierToken}
 ```
 
 Request fields:
@@ -192,6 +211,12 @@ Web cashier app uses this as a polling fallback when WebSocket is unavailable.
 GET /api/payment/status/{paymentId}
 ```
 
+Required header:
+
+```text
+Authorization: Bearer {webCashierToken}
+```
+
 Success `data`:
 
 ```json
@@ -229,6 +254,12 @@ Web cashier app uses this after refresh/reopen to resume an active payment for a
 GET /api/payment/latest-pending?enterpriseCode=PADM001&terminalId=TERM-1782360000000
 ```
 
+Required header:
+
+```text
+Authorization: Bearer {webCashierToken}
+```
+
 Success `data` is the same shape as `GET /api/payment/status/{paymentId}`.
 
 `404` response:
@@ -247,6 +278,12 @@ Web cashier app calls this when the QR was generated but the customer cannot com
 
 ```text
 POST /api/payments/{paymentId}/cancel
+```
+
+Required header:
+
+```text
+Authorization: Bearer {webCashierToken}
 ```
 
 Allowed current statuses:
@@ -303,6 +340,12 @@ Web cashier app calls this only after the configured fallback window when the An
 POST /api/payments/{paymentId}/manual-confirm
 ```
 
+Required header:
+
+```text
+Authorization: Bearer {webCashierToken}
+```
+
 Works for Google Pay and PhonePe. Do not use this when status is `PHONEPE_MATCHED_WAITING_CONFIRMATION`; use PhonePe confirm instead.
 
 Request:
@@ -356,6 +399,12 @@ Web cashier app calls this after receiving `PHONEPE_PAYMENT_CONFIRMATION_REQUIRE
 POST /api/payments/{paymentId}/phonepe/confirm
 ```
 
+Required header:
+
+```text
+Authorization: Bearer {webCashierToken}
+```
+
 Request:
 
 ```json
@@ -396,6 +445,12 @@ Web cashier app calls this when the PhonePe notification does not belong to this
 
 ```text
 POST /api/payments/{paymentId}/phonepe/reject
+```
+
+Required header:
+
+```text
+Authorization: Bearer {webCashierToken}
 ```
 
 Request:
@@ -462,7 +517,10 @@ Success `data`:
   "terminalId": "TERM-1782360000000",
   "deviceIdentifier": "android-device-unique-id",
   "deviceName": "Counter 1",
-  "status": "ACTIVE"
+  "status": "REGISTERED",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "tokenExpiresAt": 1785225600000,
+  "tokenType": "Bearer"
 }
 ```
 
@@ -491,6 +549,12 @@ Mobile app notification listener calls this after receiving a UPI app notificati
 
 ```text
 POST /api/payment/notify
+```
+
+Required header:
+
+```text
+Authorization: Bearer {mobileToken}
 ```
 
 Request:
@@ -638,10 +702,16 @@ WebSocket is STOMP over SockJS. Clients subscribe to `/topic/...`; they do not s
 
 | Setting | Value |
 |---------|-------|
-| Endpoint | `http://{server-host}:8080/ws` |
+| Endpoint | `http://{server-host}:8080/ws?token={jwtToken}` |
 | Protocol | SockJS + STOMP |
 | Broker prefix | `/topic` |
 | Application prefix | `/app` currently configured, but no client send endpoints are required |
+
+WebSocket handshake security:
+
+- Browser/SockJS clients should pass the token as `?token={jwtToken}` or `?access_token={jwtToken}`.
+- Non-browser clients may use `Authorization: Bearer {jwtToken}` during the handshake.
+- SockJS `/ws/info` probing is public; actual WebSocket/SockJS transport handshakes require a valid token.
 
 Install frontend packages:
 
@@ -658,9 +728,10 @@ import { Client } from '@stomp/stompjs';
 const paymentId = 'PAY-1720000000000';
 const terminalId = 'TERM-1782360000000';
 const enterpriseCode = 'PADM001';
+const token = 'jwt-token-from-enterprise-validate-or-device-login';
 
 const client = new Client({
-  webSocketFactory: () => new SockJS('http://localhost:8080/ws'),
+  webSocketFactory: () => new SockJS(`http://localhost:8080/ws?token=${encodeURIComponent(token)}`),
   onConnect: () => {
     client.subscribe(`/topic/payment/${paymentId}`, (message) => {
       handlePaymentEvent(JSON.parse(message.body));

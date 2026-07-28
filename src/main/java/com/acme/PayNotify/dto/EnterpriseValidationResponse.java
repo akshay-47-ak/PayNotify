@@ -22,4 +22,7 @@ public class EnterpriseValidationResponse {
     private Integer departmentCode;
     private String status;
     private String message;
+    private String token;
+    private Long tokenExpiresAt;
+    private String tokenType;
 }

@@ -8,7 +8,6 @@ package com.acme.PayNotify.repository;
 
 import com.acme.PayNotify.entity.EnterpriseMaster;
 import com.acme.PayNotify.entity.PaymentRequest;
-import com.acme.PayNotify.entity.UserDevice;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -22,17 +21,7 @@ public interface PaymentRequestRepository extends JpaRepository<PaymentRequest, 
 
     Optional<PaymentRequest> findByPaymentId(String paymentId);
 
-    Optional<PaymentRequest> findByTransactionRef(String transactionRef);
-
-    Optional<PaymentRequest> findTopByTransactionRefAndStatusOrderByCreatedAtDesc(String transactionRef, String status);
-
     Optional<PaymentRequest> findTopByTransactionRefAndStatusInOrderByCreatedAtDesc(String transactionRef, List<String> statuses);
-
-    Optional<PaymentRequest> findTopByStatusOrderByCreatedAtDesc(String status);
-
-    List<PaymentRequest> findByEnterpriseAndStatusOrderByCreatedAtDesc(EnterpriseMaster enterprise, String status);
-
-    List<PaymentRequest> findByUserDeviceAndStatusOrderByCreatedAtDesc(UserDevice userDevice, String status);
 
     Optional<PaymentRequest> findTopByEnterpriseAndTerminalIdAndStatusOrderByCreatedAtDesc(
             EnterpriseMaster enterprise,

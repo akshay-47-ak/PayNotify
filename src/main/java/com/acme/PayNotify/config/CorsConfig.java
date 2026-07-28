@@ -6,12 +6,17 @@
  */
 package com.acme.PayNotify.config;
 
+import com.acme.PayNotify.security.JwtAuthenticationInterceptor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.*;
 
 @Configuration
 public class CorsConfig {
+
+    @Autowired
+    private JwtAuthenticationInterceptor jwtAuthenticationInterceptor;
 
     @Bean
     public WebMvcConfigurer corsConfigurer() {
@@ -22,6 +27,12 @@ public class CorsConfig {
                         .allowedOrigins("*") // for dev only
                         .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                         .allowedHeaders("*");
+            }
+
+            @Override
+            public void addInterceptors(InterceptorRegistry registry) {
+                registry.addInterceptor(jwtAuthenticationInterceptor)
+                        .addPathPatterns("/api/**");
             }
         };
     }

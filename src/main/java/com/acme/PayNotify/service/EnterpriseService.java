@@ -12,6 +12,7 @@ import com.acme.PayNotify.dto.DepartmentResponse;
 import com.acme.PayNotify.dto.EnterpriseValidationResponse;
 import com.acme.PayNotify.entity.EnterpriseMaster;
 import com.acme.PayNotify.repository.EnterpriseMasterRepository;
+import com.acme.PayNotify.security.JwtService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -27,6 +28,9 @@ public class EnterpriseService {
 
     @Autowired
     private EnterpriseMasterRepository enterpriseMasterRepository;
+
+    @Autowired
+    private JwtService jwtService;
 
     public List<DepartmentResponse> getDepartments() {
         return List.of(
@@ -183,6 +187,15 @@ public class EnterpriseService {
         populateEnterpriseDetails(response, enterprise);
         response.setStatus("VALID");
         response.setMessage("Enterprise validated successfully");
+        JwtService.TokenResponse token = jwtService.createToken(
+                normalizedEnterpriseCode,
+                normalizedEnterpriseCode,
+                "WEB_CASHIER",
+                "WEB"
+        );
+        response.setToken(token.token());
+        response.setTokenExpiresAt(token.expiresAt());
+        response.setTokenType("Bearer");
 
         return response;
     }

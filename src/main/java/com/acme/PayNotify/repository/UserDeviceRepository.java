@@ -15,8 +15,6 @@ import java.util.Optional;
 
 public interface UserDeviceRepository extends JpaRepository<UserDevice, Long> {
 
-    Optional<UserDevice> findByTerminalId(String terminalId);
-
     List<UserDevice> findByDeviceIdentifier(String deviceIdentifier);
 
     List<UserDevice> findByDeviceName(String deviceName);
@@ -29,13 +27,4 @@ public interface UserDeviceRepository extends JpaRepository<UserDevice, Long> {
 
     List<UserDevice> findByEnterpriseAndIsActiveTrue(EnterpriseMaster enterprise);
 
-    List<UserDevice> findByEnterpriseAndRoleAndIsActiveTrue(EnterpriseMaster enterprise, String role);
-
-    boolean existsByTerminalId(String terminalId);
-
-    boolean existsByDeviceIdentifier(String deviceIdentifier);
-
-    boolean existsByDeviceName(String deviceName);
-
-    boolean existsByEnterpriseAndDeviceIdentifier(EnterpriseMaster enterprise, String deviceIdentifier);
 }

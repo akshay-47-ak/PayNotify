@@ -23,4 +23,7 @@ public class DeviceRegistrationResponse {
     private String deviceIdentifier;
     private String deviceName;
     private String status;
+    private String token;
+    private Long tokenExpiresAt;
+    private String tokenType;
 }

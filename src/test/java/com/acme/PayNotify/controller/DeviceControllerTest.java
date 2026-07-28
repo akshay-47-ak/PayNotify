@@ -93,7 +93,10 @@ class DeviceControllerTest {
                 "TERM-1",
                 "DEVICE-1",
                 "Counter 1",
-                "ACTIVE"
+                "ACTIVE",
+                "token",
+                123456789L,
+                "Bearer"
         );
     }
 }

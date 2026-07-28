@@ -13,6 +13,7 @@ import com.acme.PayNotify.dto.TerminalResponse;
 import com.acme.PayNotify.entity.EnterpriseMaster;
 import com.acme.PayNotify.entity.UserDevice;
 import com.acme.PayNotify.repository.UserDeviceRepository;
+import com.acme.PayNotify.security.JwtService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -41,6 +42,9 @@ public class DeviceRegistrationService {
 
     @Autowired
     private UserDeviceRepository userDeviceRepository;
+
+    @Autowired
+    private JwtService jwtService;
 
     public DeviceRegistrationResponse registerDevice(DeviceRegistrationRequest request) {
 
@@ -411,6 +415,15 @@ public class DeviceRegistrationService {
         response.setTerminalId(device.getTerminalId());
         response.setDeviceIdentifier(device.getDeviceIdentifier());
         response.setDeviceName(device.getDeviceName());
+        JwtService.TokenResponse token = jwtService.createToken(
+                device.getDeviceName(),
+                enterprise.getEnterpriseCode(),
+                device.getRole(),
+                "MOBILE"
+        );
+        response.setToken(token.token());
+        response.setTokenExpiresAt(token.expiresAt());
+        response.setTokenType("Bearer");
 
         return response;
     }
