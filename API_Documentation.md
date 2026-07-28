@@ -1,78 +1,95 @@
-# PayNotify — Web Cashier API Documentation
+<!--
+File: API_Documentation.md
+Created: 2026-07-10
+Author: Akshay Athavale
+Use: Documents PayNotify API, design, or change details for developers and AI agents.
+-->
 
-> **Audience:** Web frontend team (Cashier screen)  
-> **Not included:** Android device APIs (`/api/device/register`, `/api/device/login`, `/api/payment/notify`)
+# PayNotify API And WebSocket Documentation
 
----
+This document is the source of truth for Web cashier, Mobile app, admin/setup, and WebSocket integration.
 
 ## Base URL
 
-```
+```text
 http://{server-host}:8080
 ```
 
 | Setting | Value |
 |---------|-------|
 | Content-Type | `application/json` |
-| Authentication | None (no auth headers required) |
+| Authentication | None currently |
 | CORS | Enabled for all origins |
+| WebSocket endpoint | `http://{server-host}:8080/ws` using SockJS + STOMP |
 
----
+## Common API Response
 
-## Common Response Format
-
-All APIs return the same wrapper:
+All REST APIs return the same wrapper:
 
 ```json
 {
   "success": true,
   "message": "Human readable message",
-  "data": { }
+  "data": {}
 }
 ```
 
 | HTTP Status | Meaning |
 |-------------|---------|
 | `200` | Success |
-| `400` | Validation / business error (`success: false`) |
+| `400` | Validation or business rule error |
 | `404` | Resource not found |
 | `500` | Server error |
 
----
+## Client Ownership
 
-## Payment Status Values (UI Reference)
+| Client | Calls |
+|--------|-------|
+| Web cashier app | Enterprise validation, terminal list, QR generation, status polling, PhonePe confirm/reject, manual confirm, cancel online payment |
+| Mobile app | Device register/login, payment notification forwarding, terminal WebSocket subscription |
+| Admin/setup UI | Department list and enterprise creation |
+
+## Payment Status Values
 
 | Status | Meaning | UI Action |
 |--------|---------|-----------|
-| `WAITING` | QR generated, waiting for customer payment | Show QR |
-| `PHONEPE_MATCHED_WAITING_CONFIRMATION` | PhonePe payment detected, needs cashier action | Show Confirm / Reject panel |
-| `PAID_AUTO_VERIFIED` | Google Pay — payment auto-verified | Show success screen |
-| `PAID_CONFIRMED_BY_CASHIER` | PhonePe — cashier confirmed payment | Show success screen |
-| `EXPIRED` | QR timed out (15 min) | Show expired message |
-| `REJECTED_BY_CASHIER` | Cashier rejected PhonePe payment | Return to waiting / new QR |
+| `WAITING` | QR generated and waiting for customer payment | Show QR and wait |
+| `PENDING` | Active payment state supported by backend matching | Treat as active/waiting |
+| `PHONEPE_MATCHED_WAITING_CONFIRMATION` | PhonePe notification matched and needs cashier action | Show Confirm / Reject panel |
+| `PAID_AUTO_VERIFIED` | Google Pay payment auto-verified from notification | Show success |
+| `PAID_CONFIRMED_BY_CASHIER` | Cashier confirmed PhonePe or manual fallback payment | Show success |
+| `EXPIRED` | QR/payment request expired | Show expired message |
+| `CANCELLED_BY_CASHIER` | Cashier cancelled online payment so customer can pay cash | Stop online payment flow |
+| `REJECTED_BY_CASHIER` | Cashier rejected a PhonePe notification match | Return payment to waiting/new action |
 
----
+## Event Types
 
-# Part 1 — Setup APIs (Before Payment)
+| Event Type | Status | Sent To | Client Action |
+|------------|--------|---------|---------------|
+| `PAYMENT_SUCCESS` | `PAID_AUTO_VERIFIED`, `PAID_CONFIRMED_BY_CASHIER` | Web cashier, terminal, enterprise topic | Show success |
+| `PHONEPE_PAYMENT_CONFIRMATION_REQUIRED` | `PHONEPE_MATCHED_WAITING_CONFIRMATION` | Web cashier payment topic only | Show PhonePe Confirm / Reject panel |
+| `PAYMENT_STATUS_UPDATED` | `WAITING`, `EXPIRED`, `REJECTED_BY_CASHIER`, `CANCELLED_BY_CASHIER`, other non-success statuses | Web cashier, terminal, enterprise topic when applicable | Update screen based on status |
 
-These are called once when the cashier screen loads.
-
----
+# 1. Web Cashier APIs
 
 ## 1.1 Validate Enterprise
 
-```
+Web cashier app calls this before loading terminals or generating QR.
+
+```text
 POST /api/enterprise/validate
 ```
 
-**Request:**
+Request:
+
 ```json
 {
   "enterpriseCode": "PADM001"
 }
 ```
 
-**Response (`data`):**
+Success `data`:
+
 ```json
 {
   "valid": true,
@@ -85,17 +102,16 @@ POST /api/enterprise/validate
 }
 ```
 
----
-
 ## 1.2 Get Active Terminals
 
-Used to populate the terminal dropdown on the cashier screen.
+Web cashier app calls this to populate terminal selection.
 
-```
+```text
 GET /api/device/terminals?enterpriseCode=PADM001
 ```
 
-**Response (`data`):**
+Success `data`:
+
 ```json
 [
   {
@@ -110,38 +126,30 @@ GET /api/device/terminals?enterpriseCode=PADM001
 ]
 ```
 
-> Use `terminalId` when generating QR.
+Use `terminalId` when generating QR.
 
----
+## 1.3 Generate QR
 
-# Part 2 — Shared Payment APIs
+Web cashier app calls this for both Google Pay and PhonePe.
 
-Used by both Google Pay and PhonePe flows.
-
----
-
-## 2.1 Generate QR Code
-
-```
+```text
 POST /api/payment/qr/generate
 ```
 
-**Request:**
+Request fields:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `enterpriseCode` | string | Yes | Enterprise code |
 | `terminalId` | string | Yes | Selected terminal |
-| `merchantName` | string | Yes | Shop / merchant name |
+| `merchantName` | string | Yes | Merchant/shop name |
 | `upiId` | string | Yes | Merchant UPI ID |
-| `amount` | number | Yes | Must be > 0 |
-| `sourceApp` | string | Yes | `"GOOGLE_PAY"` or `"PHONEPE"` |
-| `documentOwnCode` | number | No | POS bill / document reference |
-| `cashierId` | number | No | Cashier user ID |
-| `cashierSessionId` | string | No | Cashier session ID |
-| `branchId` | number | No | Branch ID |
+| `amount` | number | Yes | Must be greater than zero |
+| `sourceApp` | string | No | `GOOGLE_PAY`, `PHONEPE`, or omitted/unknown |
+| `documentOwnCode` | number | No | POS bill/document reference |
 
-**Example Request:**
+Request:
+
 ```json
 {
   "enterpriseCode": "PADM001",
@@ -150,14 +158,12 @@ POST /api/payment/qr/generate
   "upiId": "merchant@upi",
   "amount": 500.00,
   "sourceApp": "GOOGLE_PAY",
-  "documentOwnCode": 12345,
-  "cashierId": 10,
-  "cashierSessionId": "session-abc",
-  "branchId": 1
+  "documentOwnCode": 12345
 }
 ```
 
-**Success Response (`data`):**
+Success `data`:
+
 ```json
 {
   "paymentId": "PAY-1720000000000",
@@ -171,26 +177,23 @@ POST /api/payment/qr/generate
 }
 ```
 
-**Common Errors (`400`):**
-- `"Amount must be greater than zero"`
-- `"UPI ID is required"`
-- `"Selected terminal already has an active payment request."`
+Common `400` errors:
 
-> QR expires after **15 minutes**.
+- `Amount must be greater than zero`
+- `UPI ID is required`
+- `Merchant name is required`
+- `Selected terminal already has an active payment request.`
 
----
+## 1.4 Get Payment Status
 
-## 2.2 Get Payment Status (Polling Fallback)
+Web cashier app uses this as a polling fallback when WebSocket is unavailable.
 
-Use when WebSocket is disconnected or as a backup.
-
-```
+```text
 GET /api/payment/status/{paymentId}
 ```
 
-**Example:** `GET /api/payment/status/PAY-1720000000000`
+Success `data`:
 
-**Response (`data`):**
 ```json
 {
   "paymentId": "PAY-1720000000000",
@@ -208,122 +211,102 @@ GET /api/payment/status/{paymentId}
 }
 ```
 
-**404:** `{ "success": false, "message": "Payment not found", "data": null }`
+`404` response:
 
----
-
-## 2.3 Get Latest Pending Payment
-
-Use when cashier refreshes the page and needs to resume an active payment.
-
+```json
+{
+  "success": false,
+  "message": "Payment not found",
+  "data": null
+}
 ```
+
+## 1.5 Get Latest Pending Payment
+
+Web cashier app uses this after refresh/reopen to resume an active payment for a terminal.
+
+```text
 GET /api/payment/latest-pending?enterpriseCode=PADM001&terminalId=TERM-1782360000000
 ```
 
-Returns the same `PaymentStatusResponse` shape as **2.2**.  
-**404** if no pending payment exists.
+Success `data` is the same shape as `GET /api/payment/status/{paymentId}`.
 
----
-
-# Part 3 — Google Pay Flow (Web Cashier)
-
-Google Pay payments are **auto-verified**. The cashier only generates QR and waits for success. No confirm/reject step.
-
----
-
-## Flow
-
-```
-1. Cashier selects terminal + enters amount
-2. POST /api/payment/qr/generate  (sourceApp = "GOOGLE_PAY")
-3. Display QR from qrImageBase64
-4. Connect WebSocket → subscribe to /topic/payment/{paymentId}
-5. Customer pays via Google Pay on their phone
-6. Android device forwards notification to backend (you don't call this)
-7. Backend auto-matches payment → status = PAID_AUTO_VERIFIED
-8. WebSocket sends eventType = "PAYMENT_SUCCESS"
-9. Show success screen
-10. If no notification reaches backend after 3 minutes, cashier may manually confirm after calling owner/customer
-```
-
----
-
-## Generate QR — Google Pay Example
+`404` response:
 
 ```json
 {
-  "enterpriseCode": "PADM001",
-  "terminalId": "TERM-1782360000000",
-  "merchantName": "Shop Name",
-  "upiId": "merchant@upi",
-  "amount": 500.00,
-  "sourceApp": "GOOGLE_PAY",
-  "cashierId": 10,
-  "cashierSessionId": "session-abc"
+  "success": false,
+  "message": "No pending payment found",
+  "data": null
 }
 ```
 
----
+## 1.6 Cancel Online Payment
 
-## WebSocket Events — Google Pay
+Web cashier app calls this when the QR was generated but the customer cannot complete online payment and will pay by cash.
 
-Subscribe to: `/topic/payment/{paymentId}`
+```text
+POST /api/payments/{paymentId}/cancel
+```
 
-### On Success
+Allowed current statuses:
+
+- `WAITING`
+- `PENDING`
+- `PHONEPE_MATCHED_WAITING_CONFIRMATION`
+
+Request:
 
 ```json
 {
-  "eventType": "PAYMENT_SUCCESS",
+  "reason": "Customer will pay by cash"
+}
+```
+
+`reason` is optional.
+
+Success `data`:
+
+```json
+{
+  "matched": false,
+  "status": "CANCELLED_BY_CASHIER",
   "paymentId": "PAY-1720000000000",
-  "enterpriseCode": "PADM001",
-  "terminalId": "TERM-1782360000000",
-  "status": "PAID_AUTO_VERIFIED",
   "transactionRef": "PADM-TXN-123456",
-  "amount": 500.00,
-  "payerName": "Rahul",
-  "utr": "UTR123456789",
-  "message": "Payment received successfully",
-  "sourceApp": "GOOGLE_PAY",
-  "timestamp": 1720000000000,
-  "notificationId": null
+  "expectedAmount": 500.00,
+  "receivedAmount": null,
+  "amountMatched": false,
+  "utr": null,
+  "payerName": null,
+  "notificationId": null,
+  "message": "Online payment cancelled by cashier. Collect cash payment."
 }
 ```
 
-**UI:** When `eventType === "PAYMENT_SUCCESS"` → show success screen with amount, payer name, UTR.
+Common `400` error:
 
-### On Expired
+- `Payment is not active and cannot be cancelled`
 
-```json
-{
-  "eventType": "PAYMENT_STATUS_UPDATED",
-  "status": "EXPIRED",
-  "message": "Payment request expired",
-  "paymentId": "PAY-1720000000000",
-  "timestamp": 1720000000000
-}
-```
+WebSocket after success:
 
----
+- `/topic/payment/{paymentId}`
+- `/topic/terminal/{terminalId}`
+- `/topic/enterprise/{enterpriseCode}/payments`
 
-## Polling Fallback — Google Pay
+Event status is `CANCELLED_BY_CASHIER`; event type is `PAYMENT_STATUS_UPDATED`.
 
-If WebSocket disconnects, poll every 3–5 seconds:
+## 1.7 Manual Confirm Payment
 
-```
-GET /api/payment/status/{paymentId}
-```
+Web cashier app calls this only after the configured fallback window when the Android notification did not reach the backend and the cashier manually verified payment.
 
-Stop polling when `status` is `PAID_AUTO_VERIFIED` or `EXPIRED`.
-
-## Manual Confirmation Fallback — Google Pay
-
-Use only when the backend did not receive the Android notification within the configured fallback window, currently 3 minutes from QR generation, and the cashier has manually confirmed payment with the owner/customer.
-
-```
+```text
 POST /api/payments/{paymentId}/manual-confirm
 ```
 
-**Request:**
+Works for Google Pay and PhonePe. Do not use this when status is `PHONEPE_MATCHED_WAITING_CONFIRMATION`; use PhonePe confirm instead.
+
+Request:
+
 ```json
 {
   "utr": "MANUAL-UTR-1",
@@ -332,9 +315,10 @@ POST /api/payments/{paymentId}/manual-confirm
 }
 ```
 
-All request fields are optional, but send `reason` when available for audit/debugging.
+All fields are optional.
 
-**Success Response (`data`):**
+Success `data`:
+
 ```json
 {
   "matched": true,
@@ -351,135 +335,37 @@ All request fields are optional, but send `reason` when available for audit/debu
 }
 ```
 
-**WebSocket after success:** backend sends `PAYMENT_SUCCESS` to `/topic/payment/{paymentId}`, `/topic/terminal/{terminalId}`, and `/topic/enterprise/{enterpriseCode}/payments`.
+Common `400` errors:
 
-**Common Errors (`400`):**
-- `"Manual confirmation is allowed only after 3 minutes from QR generation"`
-- `"Payment request is expired"`
-- `"Payment is not waiting for manual confirmation"`
+- `Manual confirmation is allowed only after 3 minutes from QR generation`
+- `Payment has a PhonePe notification. Use notification confirm API.`
+- `Payment request is expired`
+- `Payment is not waiting for manual confirmation`
 
----
+Compatibility alias:
 
-# Part 4 — PhonePe Flow (Web Cashier)
-
-PhonePe payments need **cashier confirmation**. The backend matches by amount + time window (PhonePe notifications don't carry transaction reference). Cashier must confirm or reject on the web screen.
-
----
-
-## Flow
-
-```
-1. Cashier selects terminal + enters amount
-2. POST /api/payment/qr/generate  (sourceApp = "PHONEPE")
-3. Display QR from qrImageBase64
-4. Connect WebSocket → subscribe to /topic/payment/{paymentId}
-5. Customer pays via PhonePe
-6. Android device forwards notification to backend (you don't call this)
-7. Backend matches → status = PHONEPE_MATCHED_WAITING_CONFIRMATION
-8. WebSocket sends eventType = "PHONEPE_PAYMENT_CONFIRMATION_REQUIRED"
-9. Show Confirm / Reject panel (amount, payerName, notificationId)
-10a. Cashier confirms → POST /api/payments/{paymentId}/phonepe/confirm
-10b. Cashier rejects  → POST /api/payments/{paymentId}/phonepe/reject
-10c. If no notification reaches backend after 3 minutes, cashier may manually confirm after calling owner/customer → POST /api/payments/{paymentId}/manual-confirm
-11. On confirm → WebSocket sends PAYMENT_SUCCESS
+```text
+POST /api/payments/{paymentId}/phonepe/manual-confirm
 ```
 
----
+## 1.8 Confirm PhonePe Payment
 
-## Generate QR — PhonePe Example
+Web cashier app calls this after receiving `PHONEPE_PAYMENT_CONFIRMATION_REQUIRED`.
 
-```json
-{
-  "enterpriseCode": "PADM001",
-  "terminalId": "TERM-1782360000000",
-  "merchantName": "Shop Name",
-  "upiId": "merchant@upi",
-  "amount": 500.00,
-  "sourceApp": "PHONEPE",
-  "cashierId": 10,
-  "cashierSessionId": "session-abc"
-}
-```
-
----
-
-## WebSocket Events — PhonePe
-
-Subscribe to: `/topic/payment/{paymentId}`
-
-> PhonePe confirmation events are sent **only** to `/topic/payment/{paymentId}` — not to enterprise-wide topics.
-
-### Confirmation Required
-
-```json
-{
-  "eventType": "PHONEPE_PAYMENT_CONFIRMATION_REQUIRED",
-  "paymentId": "PAY-1720000000000",
-  "enterpriseCode": "PADM001",
-  "terminalId": "TERM-1782360000000",
-  "status": "PHONEPE_MATCHED_WAITING_CONFIRMATION",
-  "amount": 500.00,
-  "payerName": "Rahul",
-  "notificationId": 501,
-  "message": "PhonePe payment received. Please confirm after checking customer.",
-  "timestamp": 1720000000000
-}
-```
-
-**UI:** Show a panel with:
-- Amount: `amount`
-- Payer: `payerName`
-- **Confirm** and **Reject** buttons
-- Save `notificationId` — required for confirm/reject API calls
-
-### On Confirm Success
-
-```json
-{
-  "eventType": "PAYMENT_SUCCESS",
-  "paymentId": "PAY-1720000000000",
-  "status": "PAID_CONFIRMED_BY_CASHIER",
-  "amount": 500.00,
-  "payerName": "Rahul",
-  "message": "PhonePe payment confirmed successfully.",
-  "timestamp": 1720000000000
-}
-```
-
-### On Reject
-
-```json
-{
-  "eventType": "PAYMENT_STATUS_UPDATED",
-  "status": "WAITING",
-  "message": "PhonePe payment rejected by cashier.",
-  "paymentId": "PAY-1720000000000",
-  "timestamp": 1720000000000
-}
-```
-
----
-
-## 4.1 Confirm PhonePe Payment
-
-```
+```text
 POST /api/payments/{paymentId}/phonepe/confirm
 ```
 
-`{paymentId}` = value from QR generate response (e.g. `PAY-1720000000000`)
+Request:
 
-**Request:**
 ```json
 {
   "notificationId": 501
 }
 ```
 
-| Field | Type | Required |
-|-------|------|----------|
-| `notificationId` | number | Yes (from WebSocket event) |
+Success `data`:
 
-**Success Response (`data`):**
 ```json
 {
   "matched": true,
@@ -489,26 +375,31 @@ POST /api/payments/{paymentId}/phonepe/confirm
   "expectedAmount": 500.00,
   "receivedAmount": "500.00",
   "amountMatched": true,
+  "utr": null,
   "payerName": "Rahul",
   "notificationId": 501,
   "message": "PhonePe payment confirmed successfully."
 }
 ```
 
-**Common Errors (`400`):**
-- `"Notification ID is required"`
-- `"Payment is not waiting for PhonePe confirmation"`
-- `"Notification is already used"`
+Common `400` errors:
 
----
+- `Notification ID is required`
+- `Payment is not waiting for PhonePe confirmation`
+- `Notification does not match this payment request`
+- `Notification is already used`
+- `Notification amount does not match payment amount`
 
-## 4.2 Reject PhonePe Payment
+## 1.9 Reject PhonePe Payment
 
-```
+Web cashier app calls this when the PhonePe notification does not belong to this cashier/customer.
+
+```text
 POST /api/payments/{paymentId}/phonepe/reject
 ```
 
-**Request:**
+Request:
+
 ```json
 {
   "notificationId": 501,
@@ -516,123 +407,249 @@ POST /api/payments/{paymentId}/phonepe/reject
 }
 ```
 
-| Field | Type | Required |
-|-------|------|----------|
-| `notificationId` | number | Yes |
-| `reason` | string | No |
+`reason` is optional.
 
-**Success Response (`data`):**
+Success `data`:
+
 ```json
 {
   "matched": false,
-  "status": "WAITING",
+  "status": "REJECTED_BY_CASHIER",
   "paymentId": "PAY-1720000000000",
+  "transactionRef": "PADM-TXN-123456",
   "expectedAmount": 500.00,
   "receivedAmount": "500.00",
-  "amountMatched": true,
-  "payerName": "Rahul",
+  "amountMatched": false,
+  "utr": null,
+  "payerName": null,
   "notificationId": 501,
-  "message": "PhonePe payment rejected by cashier."
+  "message": "PhonePe payment rejected for this payment request."
 }
 ```
 
----
+After rejection the payment request may return to `WAITING` internally when it is still usable; use WebSocket/status polling for the next UI state.
 
-## Polling Fallback — PhonePe
+# 2. Mobile App APIs
 
-Poll `GET /api/payment/status/{paymentId}` when WebSocket is down.
+## 2.1 Register Device
 
-When status becomes `PHONEPE_MATCHED_WAITING_CONFIRMATION`, show the confirm panel using `notificationId` and `payerName` from the response:
+Mobile app calls this to register an Android terminal or notification listener.
+
+```text
+POST /api/device/register
+```
+
+Request:
 
 ```json
 {
-  "paymentId": "PAY-1720000000000",
+  "enterpriseCode": "PADM001",
+  "role": "CASHIER",
+  "deviceIdentifier": "android-device-unique-id",
+  "deviceName": "Counter 1",
+  "password": "secret"
+}
+```
+
+Success `data`:
+
+```json
+{
+  "deviceId": 1,
+  "enterpriseCode": "PADM001",
+  "enterpriseName": "PADM Enterprise",
+  "role": "CASHIER",
+  "terminalId": "TERM-1782360000000",
+  "deviceIdentifier": "android-device-unique-id",
+  "deviceName": "Counter 1",
+  "status": "ACTIVE"
+}
+```
+
+## 2.2 Login Device
+
+Mobile app calls this for an already registered Android device.
+
+```text
+POST /api/device/login
+```
+
+Request:
+
+```json
+{
+  "deviceName": "Counter 1",
+  "password": "secret"
+}
+```
+
+Success `data` uses the same shape as device registration.
+
+## 2.3 Forward Payment Notification
+
+Mobile app notification listener calls this after receiving a UPI app notification.
+
+```text
+POST /api/payment/notify
+```
+
+Request:
+
+```json
+{
+  "enterpriseCode": "PADM001",
+  "deviceIdentifier": "android-device-unique-id",
+  "terminalId": "TERM-1782360000000",
+  "appName": "Google Pay",
+  "packageName": "com.google.android.apps.nbu.paisa.user",
+  "title": "Google Pay",
+  "message": "You received Rs. 500.00 from Rahul",
+  "rawTitle": "Google Pay",
+  "rawMessage": "You received Rs. 500.00 from Rahul UPI transaction ID UTR123456789",
   "amount": 500.00,
+  "payerName": "Rahul",
+  "extractedTxnId": "PADM-TXN-123456",
+  "notificationReceivedAt": "2026-07-28T10:30:00.000+00:00",
+  "transactionRef": "PADM-TXN-123456"
+}
+```
+
+Notes:
+
+- For Google Pay, `extractedTxnId` or `transactionRef` should carry the generated `PADM-TXN-*` reference when available.
+- For PhonePe, transaction reference is usually not available; backend matches by enterprise, amount, terminal/time window, and cashier confirmation.
+- `rawTitle` and `rawMessage` are preferred because backend parsing can use the original notification text.
+
+Success `data` examples:
+
+Google Pay auto verified:
+
+```json
+{
+  "matched": true,
+  "status": "PAID_AUTO_VERIFIED",
+  "paymentId": "PAY-1720000000000",
+  "transactionRef": "PADM-TXN-123456",
+  "expectedAmount": 500.00,
+  "receivedAmount": "500.00",
+  "amountMatched": true,
+  "utr": "UTR123456789",
+  "payerName": "Rahul",
+  "notificationId": null,
+  "message": "Payment matched successfully"
+}
+```
+
+PhonePe waiting for cashier confirmation:
+
+```json
+{
+  "matched": true,
   "status": "PHONEPE_MATCHED_WAITING_CONFIRMATION",
+  "paymentId": "PAY-1720000000000",
+  "transactionRef": null,
+  "expectedAmount": 500.00,
+  "receivedAmount": "500.00",
+  "amountMatched": true,
+  "utr": null,
   "payerName": "Rahul",
   "notificationId": 501,
   "message": "PhonePe payment received. Please confirm after checking customer."
 }
 ```
 
-## Manual Confirmation Fallback — PhonePe
+Common statuses returned to Mobile app:
 
-Use only when the Android/owner-device notification did not reach the backend within the configured fallback window, currently 3 minutes from QR generation. The cashier should call the owner/customer, verify payment, then call this API.
+- `PAID_AUTO_VERIFIED`
+- `PHONEPE_MATCHED_WAITING_CONFIRMATION`
+- `PHONEPE_QUEUED`
+- `UNMATCHED_NOTIFICATION`
+- `TRANSACTION_REF_NOT_FOUND`
+- `PENDING_PAYMENT_NOT_FOUND`
+- `AMOUNT_MISMATCH`
+- `PAYMENT_EXPIRED`
+- `DUPLICATE`
 
-Preferred generic endpoint, works for both PhonePe and Google Pay:
+# 3. Admin/Setup APIs
 
+## 3.1 Get Departments
+
+Admin/setup UI calls this before enterprise creation.
+
+```text
+GET /api/enterprise/departments
 ```
-POST /api/payments/{paymentId}/manual-confirm
+
+Success `data`:
+
+```json
+[
+  {
+    "department": "PADM",
+    "departmentCode": 1
+  },
+  {
+    "department": "INFINITY",
+    "departmentCode": 2
+  }
+]
 ```
 
-Compatibility alias:
+## 3.2 Create Enterprise
 
-```
-POST /api/payments/{paymentId}/phonepe/manual-confirm
+Admin/setup UI calls this to create an enterprise.
+
+```text
+POST /api/enterprise/create
 ```
 
-**Request:**
+Request:
+
 ```json
 {
-  "utr": "MANUAL-UTR-1",
-  "payerName": "Manual Payer",
-  "reason": "Owner confirmed by phone"
+  "enterpriseCode": "PADM001",
+  "enterpriseName": "PADM Enterprise",
+  "department": "PADM",
+  "departmentCode": 1,
+  "liveFrom": "2026-06-25T00:00:00.000+00:00"
 }
 ```
 
-All request fields are optional. The backend uses the payment's stored cashier id for `confirmedBy`.
+Success `data`:
 
-**Success Response (`data`):**
 ```json
 {
-  "matched": true,
-  "status": "PAID_CONFIRMED_BY_CASHIER",
-  "paymentId": "PAY-1720000000000",
-  "transactionRef": "PADM-TXN-123456",
-  "expectedAmount": 500.00,
-  "receivedAmount": null,
-  "amountMatched": true,
-  "utr": "MANUAL-UTR-1",
-  "payerName": "Manual Payer",
-  "notificationId": null,
-  "message": "Payment manually confirmed by cashier."
+  "id": 1,
+  "enterpriseCode": "PADM001",
+  "enterpriseName": "PADM Enterprise",
+  "department": "PADM",
+  "departmentCode": 1,
+  "isActive": true,
+  "liveFrom": "2026-06-25T00:00:00.000+00:00",
+  "createdAt": "2026-07-28T10:30:00.000+00:00"
 }
 ```
 
-**WebSocket after success:** backend sends `PAYMENT_SUCCESS` to:
-- `/topic/payment/{paymentId}`
-- `/topic/terminal/{terminalId}`
-- `/topic/enterprise/{enterpriseCode}/payments`
+# 4. WebSocket
 
-**Common Errors (`400`):**
-- `"Manual confirmation is allowed only after 3 minutes from QR generation"`
-- `"Payment has a PhonePe notification. Use notification confirm API."`
-- `"Payment request is expired"`
-- `"Payment is not waiting for manual confirmation"`
+WebSocket is STOMP over SockJS. Clients subscribe to `/topic/...`; they do not send application messages.
 
----
-
-# Part 5 — WebSocket (STOMP over SockJS)
-
-Server-push only. Web client **subscribes** — no messages need to be sent from the web app.
-
----
-
-## Connection
+## 4.1 Connection
 
 | Setting | Value |
 |---------|-------|
-| Endpoint | `http://{server-host}:8080/ws` (SockJS) |
-| Protocol | STOMP |
-| Subscribe prefix | `/topic` |
+| Endpoint | `http://{server-host}:8080/ws` |
+| Protocol | SockJS + STOMP |
+| Broker prefix | `/topic` |
+| Application prefix | `/app` currently configured, but no client send endpoints are required |
 
-### Libraries
+Install frontend packages:
 
 ```bash
 npm install sockjs-client @stomp/stompjs
 ```
 
-### Connect & Subscribe Example
+Example:
 
 ```javascript
 import SockJS from 'sockjs-client';
@@ -640,52 +657,41 @@ import { Client } from '@stomp/stompjs';
 
 const paymentId = 'PAY-1720000000000';
 const terminalId = 'TERM-1782360000000';
+const enterpriseCode = 'PADM001';
 
 const client = new Client({
   webSocketFactory: () => new SockJS('http://localhost:8080/ws'),
   onConnect: () => {
-    // Primary — payment status updates
     client.subscribe(`/topic/payment/${paymentId}`, (message) => {
-      const event = JSON.parse(message.body);
-      handlePaymentEvent(event);
+      handlePaymentEvent(JSON.parse(message.body));
     });
 
-    // Optional — terminal-level QR + status updates
     client.subscribe(`/topic/terminal/${terminalId}`, (message) => {
-      const event = JSON.parse(message.body);
-      handleTerminalEvent(event);
+      handleTerminalEvent(JSON.parse(message.body));
     });
-  },
+
+    client.subscribe(`/topic/enterprise/${enterpriseCode}/payments`, (message) => {
+      handleEnterprisePaymentEvent(JSON.parse(message.body));
+    });
+  }
 });
 
 client.activate();
 ```
 
----
+## 4.2 Topics
 
-## Subscribe Topics
+| Topic | Client | When To Subscribe | Payload |
+|-------|--------|-------------------|---------|
+| `/topic/payment/{paymentId}` | Web cashier | Required after QR generation | `PaymentStatusEvent` |
+| `/topic/terminal/{terminalId}` | Mobile terminal, optional Web cashier | Required for terminal QR display; optional for web terminal-level monitoring | `TerminalQrEvent` on QR generation, `PaymentStatusEvent` on status update |
+| `/topic/enterprise/{enterpriseCode}/payments` | Web dashboard/admin monitor | Optional enterprise-wide payment status monitoring | `PaymentStatusEvent` |
 
-| Topic | When to Use | Payload |
-|-------|-------------|---------|
-| `/topic/payment/{paymentId}` | **Required** — all payment status updates + PhonePe confirm prompt | `PaymentStatusEvent` |
-| `/topic/terminal/{terminalId}` | Optional — QR generation event + status updates | `TerminalQrEvent` or `PaymentStatusEvent` |
-| `/topic/enterprise/{enterpriseCode}/payments` | Optional — final payment updates only (no PhonePe confirm prompt) | `PaymentStatusEvent` |
+## 4.3 Terminal QR Event
 
----
+Published to `/topic/terminal/{terminalId}` when Web cashier generates QR.
 
-## Event Types
-
-| `eventType` | When | Action |
-|-------------|------|--------|
-| `PAYMENT_SUCCESS` | `PAID_AUTO_VERIFIED` or `PAID_CONFIRMED_BY_CASHIER`, including manual fallback confirmation | Show success screen |
-| `PHONEPE_PAYMENT_CONFIRMATION_REQUIRED` | `PHONEPE_MATCHED_WAITING_CONFIRMATION` | Show Confirm / Reject panel |
-| `PAYMENT_STATUS_UPDATED` | `WAITING`, `EXPIRED`, `REJECTED_BY_CASHIER` | Update UI accordingly |
-
----
-
-## Terminal QR Event (on QR generate)
-
-Published to `/topic/terminal/{terminalId}`:
+Payload:
 
 ```json
 {
@@ -705,78 +711,175 @@ Published to `/topic/terminal/{terminalId}`:
 }
 ```
 
----
+## 4.4 Payment Success Event
 
-# Part 6 — Quick Integration Checklist
+Published after Google Pay auto verification, PhonePe cashier confirmation, or manual fallback confirmation.
 
-### On Page Load
-- [ ] `POST /api/enterprise/validate` — validate enterprise code
-- [ ] `GET /api/device/terminals?enterpriseCode=...` — load terminal dropdown
+Topics:
 
-### On Generate QR
-- [ ] `POST /api/payment/qr/generate` with correct `sourceApp`
-- [ ] Display `qrImageBase64` as QR image
-- [ ] Save `paymentId` for WebSocket + polling
-- [ ] Connect WebSocket and subscribe to `/topic/payment/{paymentId}`
+- `/topic/payment/{paymentId}`
+- `/topic/terminal/{terminalId}`
+- `/topic/enterprise/{enterpriseCode}/payments`
 
-### Google Pay Screen
-- [ ] Listen for `eventType: "PAYMENT_SUCCESS"` on WebSocket
-- [ ] Fallback: poll `GET /api/payment/status/{paymentId}` every 3–5 sec
-- [ ] If no notification arrives after 3 minutes and owner/customer confirms manually → `POST /api/payments/{paymentId}/manual-confirm`
-- [ ] No notification-based confirm/reject UI needed
+Payload:
 
-### PhonePe Screen
-- [ ] Listen for `eventType: "PHONEPE_PAYMENT_CONFIRMATION_REQUIRED"`
-- [ ] Show Confirm / Reject panel with `amount`, `payerName`, `notificationId`
-- [ ] On Confirm → `POST /api/payments/{paymentId}/phonepe/confirm`
-- [ ] On Reject → `POST /api/payments/{paymentId}/phonepe/reject`
-- [ ] If no notification arrives after 3 minutes and owner/customer confirms manually → `POST /api/payments/{paymentId}/manual-confirm`
-- [ ] Fallback: poll status endpoint; show panel when status = `PHONEPE_MATCHED_WAITING_CONFIRMATION`
-
-### Manual Confirmation Fallback
-- [ ] Available for both Google Pay and PhonePe after 3 minutes from QR generation
-- [ ] On success, handle `PAYMENT_SUCCESS` from `/topic/payment/{paymentId}` and `/topic/terminal/{terminalId}`
-- [ ] Do not use manual fallback when PhonePe confirm panel is already open; use `/phonepe/confirm` with `notificationId`
-
-### Do NOT Call from Web
-- `POST /api/payment/notify` — Android only
-- `POST /api/device/register` — Android only
-- `POST /api/device/login` — Android only
-
----
-
-# Appendix — Enterprise Setup APIs (Admin Screen)
-
-Only needed if building an enterprise onboarding / admin page.
-
-## Get Departments
-
-```
-GET /api/enterprise/departments
-```
-
-**Response (`data`):**
-```json
-[
-  { "department": "PADM", "departmentCode": 1 },
-  { "department": "INFINITY", "departmentCode": 2 },
-  { "department": "INSIGHT", "departmentCode": 3 }
-]
-```
-
-## Create Enterprise
-
-```
-POST /api/enterprise/create
-```
-
-**Request:**
 ```json
 {
+  "paymentId": "PAY-1720000000000",
   "enterpriseCode": "PADM001",
-  "enterpriseName": "PADM Enterprise",
-  "department": "PADM",
-  "departmentCode": 1,
-  "liveFrom": "2026-06-25T00:00:00.000+00:00"
+  "terminalId": "TERM-1782360000000",
+  "status": "PAID_AUTO_VERIFIED",
+  "transactionRef": "PADM-TXN-123456",
+  "amount": 500.00,
+  "payerName": "Rahul",
+  "utr": "UTR123456789",
+  "message": "Payment received successfully",
+  "timestamp": 1720000000000,
+  "sourceApp": "GOOGLE_PAY",
+  "eventType": "PAYMENT_SUCCESS",
+  "notificationId": null
 }
 ```
+
+## 4.5 PhonePe Confirmation Required Event
+
+Published only to `/topic/payment/{paymentId}` when PhonePe notification is matched and cashier action is required.
+
+Payload:
+
+```json
+{
+  "paymentId": "PAY-1720000000000",
+  "enterpriseCode": "PADM001",
+  "terminalId": "TERM-1782360000000",
+  "status": "PHONEPE_MATCHED_WAITING_CONFIRMATION",
+  "transactionRef": "PADM-TXN-123456",
+  "amount": 500.00,
+  "payerName": "Rahul",
+  "utr": null,
+  "message": "PhonePe payment received. Please confirm after checking customer.",
+  "timestamp": 1720000000000,
+  "sourceApp": "PHONEPE",
+  "eventType": "PHONEPE_PAYMENT_CONFIRMATION_REQUIRED",
+  "notificationId": 501
+}
+```
+
+Web cashier action:
+
+- Save `notificationId`.
+- Show payer/amount.
+- Confirm using `POST /api/payments/{paymentId}/phonepe/confirm`.
+- Reject using `POST /api/payments/{paymentId}/phonepe/reject`.
+
+## 4.6 Payment Status Updated Event
+
+Published for non-success status changes such as expiry, rejection, cancellation, and waiting updates.
+
+Topics:
+
+- `/topic/payment/{paymentId}`
+- `/topic/terminal/{terminalId}`
+- `/topic/enterprise/{enterpriseCode}/payments` when enterprise code is available
+
+Cancellation payload:
+
+```json
+{
+  "paymentId": "PAY-1720000000000",
+  "enterpriseCode": "PADM001",
+  "terminalId": "TERM-1782360000000",
+  "status": "CANCELLED_BY_CASHIER",
+  "transactionRef": "PADM-TXN-123456",
+  "amount": 500.00,
+  "payerName": null,
+  "utr": null,
+  "message": "Online payment cancelled by cashier. Collect cash payment.",
+  "timestamp": 1720000000000,
+  "sourceApp": "GOOGLE_PAY",
+  "eventType": "PAYMENT_STATUS_UPDATED",
+  "notificationId": null
+}
+```
+
+Expired payload:
+
+```json
+{
+  "paymentId": "PAY-1720000000000",
+  "enterpriseCode": "PADM001",
+  "terminalId": "TERM-1782360000000",
+  "status": "EXPIRED",
+  "transactionRef": "PADM-TXN-123456",
+  "amount": 500.00,
+  "payerName": null,
+  "utr": null,
+  "message": "Payment request is expired.",
+  "timestamp": 1720000000000,
+  "sourceApp": "PHONEPE",
+  "eventType": "PAYMENT_STATUS_UPDATED",
+  "notificationId": null
+}
+```
+
+# 5. Flow Guides
+
+## 5.1 Google Pay Web Cashier Flow
+
+1. Call `POST /api/enterprise/validate`.
+2. Call `GET /api/device/terminals`.
+3. Call `POST /api/payment/qr/generate` with `sourceApp = "GOOGLE_PAY"`.
+4. Display `qrImageBase64`.
+5. Subscribe to `/topic/payment/{paymentId}`.
+6. Mobile app forwards Google Pay notification to `POST /api/payment/notify`.
+7. Backend sends `PAYMENT_SUCCESS` with status `PAID_AUTO_VERIFIED`.
+8. If customer cannot pay online, call `POST /api/payments/{paymentId}/cancel` and collect cash.
+9. If payment is verified manually after fallback window, call `POST /api/payments/{paymentId}/manual-confirm`.
+
+## 5.2 PhonePe Web Cashier Flow
+
+1. Call `POST /api/enterprise/validate`.
+2. Call `GET /api/device/terminals`.
+3. Call `POST /api/payment/qr/generate` with `sourceApp = "PHONEPE"`.
+4. Display `qrImageBase64`.
+5. Subscribe to `/topic/payment/{paymentId}`.
+6. Mobile app forwards PhonePe notification to `POST /api/payment/notify`.
+7. Backend sends `PHONEPE_PAYMENT_CONFIRMATION_REQUIRED`.
+8. Cashier confirms with `POST /api/payments/{paymentId}/phonepe/confirm` or rejects with `POST /api/payments/{paymentId}/phonepe/reject`.
+9. If customer cannot pay online, call `POST /api/payments/{paymentId}/cancel` and collect cash.
+10. If no notification arrives and payment is manually verified after fallback window, call `POST /api/payments/{paymentId}/manual-confirm`.
+
+## 5.3 Mobile App Flow
+
+1. Register device using `POST /api/device/register`.
+2. Login using `POST /api/device/login` when needed.
+3. Subscribe terminal display to `/topic/terminal/{terminalId}` if the mobile terminal must show generated QR/status.
+4. Listen to Android notifications from UPI apps.
+5. Forward notification details to `POST /api/payment/notify`.
+
+# 6. Quick Integration Checklist
+
+## Web Cashier
+
+- [ ] Validate enterprise.
+- [ ] Load terminals.
+- [ ] Generate QR with correct `sourceApp`.
+- [ ] Subscribe to `/topic/payment/{paymentId}`.
+- [ ] Optionally subscribe to `/topic/terminal/{terminalId}`.
+- [ ] Handle `PAYMENT_SUCCESS`.
+- [ ] Handle `PHONEPE_PAYMENT_CONFIRMATION_REQUIRED`.
+- [ ] Handle `PAYMENT_STATUS_UPDATED`, including `CANCELLED_BY_CASHIER` and `EXPIRED`.
+- [ ] Use cancel API when customer switches from online payment to cash.
+
+## Mobile App
+
+- [ ] Register/login device.
+- [ ] Forward UPI notifications to `/api/payment/notify`.
+- [ ] Include raw notification title/message whenever possible.
+- [ ] Subscribe to `/topic/terminal/{terminalId}` when terminal QR/status display is required.
+
+## Do Not Call From Web Cashier
+
+- `POST /api/payment/notify` - Mobile app only.
+- `POST /api/device/register` - Mobile app only.
+- `POST /api/device/login` - Mobile app only.

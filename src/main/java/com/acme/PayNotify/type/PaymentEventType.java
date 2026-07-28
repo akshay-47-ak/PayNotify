@@ -1,3 +1,9 @@
+/*
+ * File: PaymentEventType.java
+ * Created: 2026-07-10
+ * Author: Akshay Athavale
+ * Use: Defines shared constants/enums for PayNotify payment flows.
+ */
 package com.acme.PayNotify.type;
 
 public enum PaymentEventType {

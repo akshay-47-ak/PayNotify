@@ -1,3 +1,7 @@
+-- File: V2__phonepe_assisted_verification.sql
+-- Created: 2026-06-30
+-- Author: Akshay Athavale
+-- Use: Defines database migration changes for PayNotify persistence.
 ALTER TABLE payment_request
     MODIFY COLUMN status VARCHAR(50) NOT NULL,
     ADD COLUMN cashier_id BIGINT NULL,

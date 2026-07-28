@@ -1,3 +1,9 @@
+/*
+ * File: PayNotifyApplication.java
+ * Created: 2026-04-13
+ * Author: Akshay Athavale
+ * Use: Supports the PayNotify application.
+ */
 package com.acme.PayNotify;
 
 import org.springframework.boot.SpringApplication;

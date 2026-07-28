@@ -1,5 +1,12 @@
+/*
+ * File: PaymentService.java
+ * Created: 2026-04-13
+ * Author: Akshay Athavale
+ * Use: Contains business logic used by PayNotify API and WebSocket flows.
+ */
 package com.acme.PayNotify.service;
 
+import com.acme.PayNotify.dto.CancelPaymentRequest;
 import com.acme.PayNotify.dto.GenerateQrRequest;
 import com.acme.PayNotify.dto.GenerateQrResponse;
 import com.acme.PayNotify.dto.ManualPaymentConfirmRequest;
@@ -701,6 +708,71 @@ public class PaymentService {
             String paymentAttemptId,
             ManualPaymentConfirmRequest request) {
         return manuallyConfirmPayment(paymentAttemptId, request);
+    }
+
+    @Transactional
+    public PaymentNotificationResponse cancelOnlinePayment(
+            String paymentAttemptId,
+            CancelPaymentRequest request) {
+
+        PaymentRequest payment = findPaymentForUpdate(paymentAttemptId);
+
+        if (!PaymentStatus.WAITING.matches(payment.getStatus())
+                && !PaymentStatus.PENDING.matches(payment.getStatus())
+                && !PaymentStatus.PHONEPE_MATCHED_WAITING_CONFIRMATION.matches(payment.getStatus())) {
+            throw new RuntimeException("Payment is not active and cannot be cancelled");
+        }
+
+        Long notificationId = payment.getMatchedNotificationId();
+        payment.setStatus(PaymentStatus.CANCELLED_BY_CASHIER.value());
+        payment.setMatchedNotificationId(null);
+        paymentRequestRepository.save(payment);
+
+        if (notificationId != null) {
+            releaseCancelledPhonePeNotification(payment, notificationId);
+        }
+
+        paymentWebSocketService.publishPaymentUpdate(payment, "Online payment cancelled by cashier. Collect cash payment.");
+        log.info("Cashier cancelled online payment. paymentId={}, sourceApp={}, cashierId={}, reason={}",
+                payment.getPaymentId(),
+                payment.getSourceApp(),
+                payment.getCashierId(),
+                request != null ? request.getReason() : null);
+
+        PaymentNotificationResponse response = new PaymentNotificationResponse();
+        response.setMatched(false);
+        response.setStatus(PaymentStatus.CANCELLED_BY_CASHIER.value());
+        response.setPaymentId(payment.getPaymentId());
+        response.setTransactionRef(payment.getTransactionRef());
+        response.setExpectedAmount(payment.getAmount());
+        response.setNotificationId(notificationId);
+        response.setMessage("Online payment cancelled by cashier. Collect cash payment.");
+        return response;
+    }
+
+    private void releaseCancelledPhonePeNotification(PaymentRequest cancelledPayment, Long notificationId) {
+        PaymentNotificationLog notification = paymentNotificationLogRepository.findByIdForUpdate(notificationId)
+                .orElse(null);
+        List<PaymentRequest> remainingCandidates = paymentRequestRepository
+                .findByMatchedNotificationIdAndStatus(
+                        notificationId,
+                        PaymentStatus.PHONEPE_MATCHED_WAITING_CONFIRMATION.value()
+                );
+
+        if (notification != null) {
+            if (remainingCandidates.isEmpty()) {
+                notification.setStatus(PaymentStatus.REJECTED_BY_CASHIER.value());
+                notification.setMatchedPaymentAttemptId(cancelledPayment.getId());
+            } else {
+                notification.setStatus(PaymentStatus.MATCHED_WAITING_CONFIRMATION.value());
+                notification.setMatchedPaymentAttemptId(null);
+            }
+            paymentNotificationLogRepository.save(notification);
+        }
+
+        if (remainingCandidates.isEmpty()) {
+            processNextQueuedPhonePeNotification(cancelledPayment.getEnterprise(), cancelledPayment.getAmount());
+        }
     }
 
     private void releaseOtherPhonePeCandidates(PaymentRequest confirmedPayment, Long notificationId, Timestamp now) {

@@ -1,3 +1,9 @@
+/*
+ * File: PaymentTransaction.java
+ * Created: 2026-04-13
+ * Author: Akshay Athavale
+ * Use: Maps PayNotify database table data used by payment and enterprise flows.
+ */
 package com.acme.PayNotify.entity;
 
 import jakarta.persistence.*;

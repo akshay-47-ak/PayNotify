@@ -1,6 +1,13 @@
+/*
+ * File: PaymentPhonePeController.java
+ * Created: 2026-06-30
+ * Author: Akshay Athavale
+ * Use: Defines REST API endpoints and marks whether calls are for the Web cashier app or Mobile app.
+ */
 package com.acme.PayNotify.controller;
 
 import com.acme.PayNotify.dto.ApiResponse;
+import com.acme.PayNotify.dto.CancelPaymentRequest;
 import com.acme.PayNotify.dto.ManualPaymentConfirmRequest;
 import com.acme.PayNotify.dto.PaymentNotificationResponse;
 import com.acme.PayNotify.dto.PhonePeConfirmRequest;
@@ -25,6 +32,7 @@ public class PaymentPhonePeController {
     @Autowired
     private PaymentService paymentService;
 
+    // Web cashier API: confirms a PhonePe notification matched to this payment.
     @PostMapping("/{paymentAttemptId}/phonepe/confirm")
     public ResponseEntity<ApiResponse<PaymentNotificationResponse>> confirmPhonePePayment(
             @PathVariable("paymentAttemptId") String paymentAttemptId,
@@ -45,6 +53,7 @@ public class PaymentPhonePeController {
         }
     }
 
+    // Web cashier API: rejects a PhonePe notification that does not belong to this payment.
     @PostMapping("/{paymentAttemptId}/phonepe/reject")
     public ResponseEntity<ApiResponse<PaymentNotificationResponse>> rejectPhonePePayment(
             @PathVariable("paymentAttemptId") String paymentAttemptId,
@@ -65,6 +74,7 @@ public class PaymentPhonePeController {
         }
     }
 
+    // Web cashier API: legacy PhonePe-specific manual confirmation route.
     @PostMapping("/{paymentAttemptId}/phonepe/manual-confirm")
     public ResponseEntity<ApiResponse<PaymentNotificationResponse>> manuallyConfirmPhonePePayment(
             @PathVariable("paymentAttemptId") String paymentAttemptId,
@@ -72,6 +82,7 @@ public class PaymentPhonePeController {
         return manuallyConfirmPayment(paymentAttemptId, request);
     }
 
+    // Web cashier API: manually confirms Google Pay or PhonePe after the fallback window.
     @PostMapping("/{paymentAttemptId}/manual-confirm")
     public ResponseEntity<ApiResponse<PaymentNotificationResponse>> manuallyConfirmPayment(
             @PathVariable("paymentAttemptId") String paymentAttemptId,
@@ -82,6 +93,27 @@ public class PaymentPhonePeController {
 
             return ResponseEntity.ok(
                     new ApiResponse<>(true, "Payment manually confirmed successfully.", response)
+            );
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest()
+                    .body(new ApiResponse<>(false, e.getMessage(), null));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ApiResponse<>(false, e.getMessage(), null));
+        }
+    }
+
+    // Web cashier API: cancels an active online payment so the customer can pay cash.
+    @PostMapping("/{paymentAttemptId}/cancel")
+    public ResponseEntity<ApiResponse<PaymentNotificationResponse>> cancelPayment(
+            @PathVariable("paymentAttemptId") String paymentAttemptId,
+            @RequestBody(required = false) CancelPaymentRequest request) {
+        try {
+            PaymentNotificationResponse response =
+                    paymentService.cancelOnlinePayment(paymentAttemptId, request);
+
+            return ResponseEntity.ok(
+                    new ApiResponse<>(true, "Online payment cancelled by cashier.", response)
             );
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest()

@@ -1,3 +1,9 @@
+/*
+ * File: PaymentWebSocketService.java
+ * Created: 2026-04-18
+ * Author: Akshay Athavale
+ * Use: Publishes WebSocket events for Web cashier screens and Mobile terminal listeners.
+ */
 package com.acme.PayNotify.service;
 
 import com.acme.PayNotify.dto.PaymentStatusEvent;
@@ -18,6 +24,7 @@ public class PaymentWebSocketService {
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
 
+    // WebSocket to Mobile terminal: publishes QR payloads on /topic/terminal/{terminalId}.
     public void publishQrToTerminal(PaymentRequest payment, String qrImageBase64, String message) {
         if (payment == null || payment.getTerminalId() == null || payment.getTerminalId().trim().isEmpty()) {
             return;
@@ -42,6 +49,7 @@ public class PaymentWebSocketService {
         messagingTemplate.convertAndSend("/topic/terminal/" + payment.getTerminalId(), event);
     }
 
+    // WebSocket to Web cashier and Mobile terminal: publishes payment status updates.
     public void publishPaymentUpdate(PaymentRequest payment, String message) {
         if (payment == null || payment.getPaymentId() == null || payment.getPaymentId().trim().isEmpty()) {
             return;
@@ -57,6 +65,7 @@ public class PaymentWebSocketService {
         }
     }
 
+    // WebSocket to Web cashier: asks the cashier to confirm or reject a PhonePe match.
     public void publishPhonePeConfirmationRequired(PaymentRequest payment, Long notificationId, String payerName) {
         if (payment == null || payment.getPaymentId() == null || payment.getPaymentId().trim().isEmpty()) {
             return;
@@ -70,6 +79,7 @@ public class PaymentWebSocketService {
         messagingTemplate.convertAndSend("/topic/payment/" + payment.getPaymentId(), event);
     }
 
+    // WebSocket to Web cashiers: sends one PhonePe confirmation prompt per candidate payment.
     public void publishPhonePeConfirmationRequired(List<PaymentRequest> payments, Long notificationId, String payerName) {
         if (payments == null || payments.isEmpty()) {
             return;

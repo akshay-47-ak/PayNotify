@@ -1,3 +1,9 @@
+/*
+ * File: DeviceController.java
+ * Created: 2026-04-22
+ * Author: Akshay Athavale
+ * Use: Defines REST API endpoints and marks whether calls are for the Web cashier app or Mobile app.
+ */
 package com.acme.PayNotify.controller;
 
 import com.acme.PayNotify.dto.ApiResponse;
@@ -21,6 +27,7 @@ public class DeviceController {
     @Autowired
     private DeviceRegistrationService deviceRegistrationService;
 
+    // Mobile app API: registers an Android terminal or notification-listener device.
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<DeviceRegistrationResponse>> registerDevice(
             @RequestBody DeviceRegistrationRequest request) {
@@ -40,6 +47,7 @@ public class DeviceController {
         }
     }
 
+    // Mobile app API: logs in an already registered Android device.
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<DeviceRegistrationResponse>> loginDevice(
             @RequestBody DeviceLoginRequest request) {
@@ -59,6 +67,7 @@ public class DeviceController {
         }
     }
 
+    // Web cashier API: loads active terminals for terminal selection.
     @GetMapping("/terminals")
     public ResponseEntity<ApiResponse<List<TerminalResponse>>> getActiveTerminals(
             @RequestParam("enterpriseCode") String enterpriseCode) {

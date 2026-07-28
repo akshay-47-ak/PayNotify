@@ -1,3 +1,10 @@
+<!--
+File: CHANGE_REPORT.md
+Created: 2026-06-25
+Author: Akshay Athavale
+Use: Documents PayNotify API, design, or change details for developers and AI agents.
+-->
+
 # PayNotify Change Report
 
 This file is the running report for application changes. Add every new change at the top with the current date and time, followed by affected files, API request/response changes, database changes, validation behavior, and verification results.

@@ -1,3 +1,9 @@
+/*
+ * File: QrCodeService.java
+ * Created: 2026-04-13
+ * Author: Akshay Athavale
+ * Use: Contains business logic used by PayNotify API and WebSocket flows.
+ */
 package com.acme.PayNotify.service;
 
 import com.google.zxing.BarcodeFormat;

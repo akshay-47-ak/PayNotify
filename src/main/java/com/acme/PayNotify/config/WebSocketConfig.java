@@ -1,3 +1,9 @@
+/*
+ * File: WebSocketConfig.java
+ * Created: 2026-04-18
+ * Author: Akshay Athavale
+ * Use: Configures PayNotify application infrastructure.
+ */
 package com.acme.PayNotify.config;
 
 import org.springframework.context.annotation.Configuration;

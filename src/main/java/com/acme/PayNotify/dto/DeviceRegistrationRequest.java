@@ -1,3 +1,9 @@
+/*
+ * File: DeviceRegistrationRequest.java
+ * Created: 2026-04-22
+ * Author: Akshay Athavale
+ * Use: Defines request or response payloads exchanged by PayNotify API/WebSocket clients.
+ */
 package com.acme.PayNotify.dto;
 
 import lombok.AllArgsConstructor;

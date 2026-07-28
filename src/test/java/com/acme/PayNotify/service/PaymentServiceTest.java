@@ -1,5 +1,12 @@
+/*
+ * File: PaymentServiceTest.java
+ * Created: 2026-06-30
+ * Author: Akshay Athavale
+ * Use: Contains automated tests for PayNotify behavior.
+ */
 package com.acme.PayNotify.service;
 
+import com.acme.PayNotify.dto.CancelPaymentRequest;
 import com.acme.PayNotify.dto.GenerateQrRequest;
 import com.acme.PayNotify.dto.PaymentNotificationRequest;
 import com.acme.PayNotify.dto.PaymentNotificationResponse;
@@ -751,6 +758,72 @@ class PaymentServiceTest {
         paymentService.generateQr(request);
 
         verify(paymentWebSocketService).publishQrToTerminal(any(PaymentRequest.class), eq("qr"), eq("QR generated successfully"));
+    }
+
+    @Test
+    void cancelOnlinePaymentCancelsWaitingPaymentAndFreesTerminal() {
+        PaymentRequest payment = waitingPayment();
+
+        when(paymentRequestRepository.findByPaymentId("PAY-1")).thenReturn(Optional.of(payment));
+        when(paymentRequestRepository.findByIdForUpdate(payment.getId())).thenReturn(Optional.of(payment));
+        when(paymentRequestRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PaymentNotificationResponse response =
+                paymentService.cancelOnlinePayment("PAY-1", new CancelPaymentRequest("Customer will pay cash"));
+
+        assertTrue(!response.isMatched());
+        assertEquals("CANCELLED_BY_CASHIER", response.getStatus());
+        assertEquals("CANCELLED_BY_CASHIER", payment.getStatus());
+        assertEquals("PAY-1", response.getPaymentId());
+        verify(paymentWebSocketService)
+                .publishPaymentUpdate(payment, "Online payment cancelled by cashier. Collect cash payment.");
+    }
+
+    @Test
+    void cancelOnlinePaymentRejectsPaidPayment() {
+        PaymentRequest payment = waitingPayment();
+        payment.setStatus("PAID_AUTO_VERIFIED");
+
+        when(paymentRequestRepository.findByPaymentId("PAY-1")).thenReturn(Optional.of(payment));
+        when(paymentRequestRepository.findByIdForUpdate(payment.getId())).thenReturn(Optional.of(payment));
+
+        RuntimeException exception = assertThrows(
+                RuntimeException.class,
+                () -> paymentService.cancelOnlinePayment("PAY-1", new CancelPaymentRequest("Customer will pay cash"))
+        );
+
+        assertEquals("Payment is not active and cannot be cancelled", exception.getMessage());
+        verify(paymentRequestRepository, never()).save(any());
+        verify(paymentWebSocketService, never()).publishPaymentUpdate(any(), any());
+    }
+
+    @Test
+    void cancelPhonePePaymentWithOpenConfirmationReleasesNotification() {
+        PaymentRequest payment = waitingPayment();
+        payment.setStatus("PHONEPE_MATCHED_WAITING_CONFIRMATION");
+        payment.setMatchedNotificationId(501L);
+
+        PaymentNotificationLog notification = new PaymentNotificationLog();
+        notification.setId(501L);
+        notification.setStatus("MATCHED_WAITING_CONFIRMATION");
+        notification.setAmount(new BigDecimal("500.00"));
+
+        when(paymentRequestRepository.findByPaymentId("PAY-1")).thenReturn(Optional.of(payment));
+        when(paymentRequestRepository.findByIdForUpdate(payment.getId())).thenReturn(Optional.of(payment));
+        when(paymentNotificationLogRepository.findByIdForUpdate(501L)).thenReturn(Optional.of(notification));
+        when(paymentRequestRepository.findByMatchedNotificationIdAndStatus(501L, "PHONEPE_MATCHED_WAITING_CONFIRMATION"))
+                .thenReturn(Collections.emptyList());
+        when(paymentRequestRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(paymentNotificationLogRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PaymentNotificationResponse response =
+                paymentService.cancelOnlinePayment("PAY-1", new CancelPaymentRequest("Customer will pay cash"));
+
+        assertEquals("CANCELLED_BY_CASHIER", response.getStatus());
+        assertEquals("CANCELLED_BY_CASHIER", payment.getStatus());
+        assertEquals(null, payment.getMatchedNotificationId());
+        assertEquals("REJECTED_BY_CASHIER", notification.getStatus());
+        assertEquals(payment.getId(), notification.getMatchedPaymentAttemptId());
     }
 
     private PaymentNotificationRequest baseNotification(String appName, String packageName) {

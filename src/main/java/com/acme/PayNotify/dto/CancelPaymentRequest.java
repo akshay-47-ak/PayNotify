@@ -1,6 +1,6 @@
 /*
- * File: ManualPaymentConfirmRequest.java
- * Created: 2026-04-13
+ * File: CancelPaymentRequest.java
+ * Created: 2026-07-28
  * Author: Akshay Athavale
  * Use: Defines request or response payloads exchanged by PayNotify API/WebSocket clients.
  */
@@ -13,9 +13,7 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class ManualPaymentConfirmRequest {
+public class CancelPaymentRequest {
 
-    private String utr;
-    private String payerName;
     private String reason;
 }

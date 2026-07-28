@@ -1,3 +1,9 @@
+/*
+ * File: BaseEntity.java
+ * Created: 2026-05-18
+ * Author: Akshay Athavale
+ * Use: Maps PayNotify database table data used by payment and enterprise flows.
+ */
 package com.acme.PayNotify.entity;
 
 import jakarta.persistence.Column;

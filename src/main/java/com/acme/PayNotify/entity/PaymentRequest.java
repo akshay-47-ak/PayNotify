@@ -1,3 +1,9 @@
+/*
+ * File: PaymentRequest.java
+ * Created: 2026-04-22
+ * Author: Akshay Athavale
+ * Use: Maps PayNotify database table data used by payment and enterprise flows.
+ */
 package com.acme.PayNotify.entity;
 
 import com.acme.PayNotify.type.PaymentStatus;

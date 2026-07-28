@@ -1,3 +1,9 @@
+/*
+ * File: PaymentController.java
+ * Created: 2026-04-13
+ * Author: Akshay Athavale
+ * Use: Defines REST API endpoints and marks whether calls are for the Web cashier app or Mobile app.
+ */
 package com.acme.PayNotify.controller;
 
 import com.acme.PayNotify.dto.ApiResponse;
@@ -20,6 +26,7 @@ public class PaymentController {
     @Autowired
     private PaymentService paymentService;
 
+    // Web cashier API: creates a QR payment request for Google Pay or PhonePe.
     @PostMapping("/qr/generate")
     public ResponseEntity<ApiResponse<GenerateQrResponse>> generateQr(
             @RequestBody GenerateQrRequest request) {
@@ -37,6 +44,7 @@ public class PaymentController {
         }
     }
 
+    // Web cashier API: resumes the latest active payment for a selected terminal.
     @GetMapping("/latest-pending")
     public ResponseEntity<ApiResponse<PaymentStatusResponse>> getLatestPending(
             @RequestParam("enterpriseCode") String enterpriseCode,
@@ -62,6 +70,7 @@ public class PaymentController {
         }
     }
 
+    // Web cashier API: polling fallback when WebSocket status updates are unavailable.
     @GetMapping("/status/{paymentId}")
     public ResponseEntity<ApiResponse<PaymentStatusResponse>> getStatus(
             @PathVariable("paymentId") String paymentId) {
@@ -82,6 +91,7 @@ public class PaymentController {
         }
     }
 
+    // Mobile app API: Android notification listener posts UPI payment notifications here.
     @PostMapping("/notify")
     public ResponseEntity<ApiResponse<PaymentNotificationResponse>> notifyPayment(
             @RequestBody PaymentNotificationRequest request) {

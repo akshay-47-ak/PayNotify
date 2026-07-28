@@ -1,3 +1,9 @@
+/*
+ * File: PaymentWebSocketServiceTest.java
+ * Created: 2026-07-01
+ * Author: Akshay Athavale
+ * Use: Contains automated tests for PayNotify behavior.
+ */
 package com.acme.PayNotify.service;
 
 import com.acme.PayNotify.dto.PaymentStatusEvent;
