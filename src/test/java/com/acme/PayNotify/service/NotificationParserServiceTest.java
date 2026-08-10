@@ -25,4 +25,25 @@ class NotificationParserServiceTest {
         assertEquals("SOHAM ANIL SHENDE", parsed.get("payerName"));
         assertEquals("1", parsed.get("amount"));
     }
+
+    @Test
+    void extractsPayerNameFromPhonePeAmountReceivedFromNotification() {
+        Map<String, String> parsed = parserService.parse(
+                "₹1 received from SOHAM ANIL SHENDE via UPI. Ref No 123456789012"
+        );
+
+        assertEquals("SOHAM ANIL SHENDE", parsed.get("payerName"));
+        assertEquals("1", parsed.get("amount"));
+        assertEquals("123456789012", parsed.get("utr"));
+    }
+
+    @Test
+    void extractsPayerNameFromPhonePeReceivedAmountFromNotification() {
+        Map<String, String> parsed = parserService.parse(
+                "Received Rs. 10.50 from Rahul Patil on PhonePe"
+        );
+
+        assertEquals("Rahul Patil", parsed.get("payerName"));
+        assertEquals("10.50", parsed.get("amount"));
+    }
 }

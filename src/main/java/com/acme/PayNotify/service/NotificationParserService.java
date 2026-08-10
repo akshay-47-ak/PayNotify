@@ -56,8 +56,10 @@ public class NotificationParserService {
                 "(?i)^([A-Za-z][A-Za-z .]{1,80}?)\\s+has\\s+sent\\s+(?:₹|rs\\.?|inr)\\b",
                 "(?i)^([A-Za-z][A-Za-z .]{1,80}?)\\s+paid\\s+you\\b",
                 "(?i)^([A-Za-z][A-Za-z .]{1,80}?)\\s+sent\\s+you\\b",
-                "(?i)received\\s+from\\s+([A-Za-z][A-Za-z .]{1,80}?)(?:\\b|₹|rs|inr)",
-                "(?i)from\\s+([A-Za-z][A-Za-z .]{1,80}?)(?:\\b|₹|rs|inr)"
+                "(?i)(?:₹|rs\\.?|inr)\\s*\\d+(?:\\.\\d{1,2})?\\s+(?:has\\s+been\\s+)?received\\s+from\\s+([A-Za-z][A-Za-z .]{1,80}?)(?=\\s+(?:on|at|via|upi|ref|rrn|txn|transaction|bank|a/c|account|credited|to)\\b|[.,]|$)",
+                "(?i)received\\s+(?:₹|rs\\.?|inr)\\s*\\d+(?:\\.\\d{1,2})?\\s+from\\s+([A-Za-z][A-Za-z .]{1,80}?)(?=\\s+(?:on|at|via|upi|ref|rrn|txn|transaction|bank|a/c|account|credited|to)\\b|[.,]|$)",
+                "(?i)received\\s+from\\s+([A-Za-z][A-Za-z .]{1,80}?)(?=\\s+(?:for|on|at|via|upi|ref|rrn|txn|transaction|bank|a/c|account|credited|to|(?:₹|rs\\.?|inr))\\b|[.,]|$)",
+                "(?i)from\\s+([A-Za-z][A-Za-z .]{1,80}?)(?=\\s+(?:for|on|at|via|upi|ref|rrn|txn|transaction|bank|a/c|account|credited|to|(?:₹|rs\\.?|inr))\\b|[.,]|$)"
         };
 
         for (String regex : patterns) {
